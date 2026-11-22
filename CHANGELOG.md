@@ -7,9 +7,53 @@ one**.
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 [Semantic Versioning]: https://semver.org/spec/v2.0.0.html
 
-## [0.1.0] — unreleased
+## [0.2.0] — 2026-11-22
+
+### Added
+
+- **General block transfer, chosen by both engines.** When the association negotiates
+  `general-block-transfer` (now in both default conformance blocks), a reply too large for
+  the client goes out as GBT for *every* service — ACCESS and the list forms included — and
+  a long request may arrive as GBT. The whole APDU is protected once and verified once, on
+  the reassembled bytes. `Server::poll_block` yields the rest of a streamed window;
+  `ClientSession::handle_response` gathers blocks into the caller's buffer and answers
+  `Response::Pending` / `Response::Acknowledge(GbtAck)`. A broken window asks for its retry
+  once. `ServerConfig::gbt_window`, `ClientConfig::gbt_window`.
+- `GbtSendCursor` / `GbtRecvCursor`: the GBT procedure without a borrowed buffer, so it
+  can be stored beside the bytes.
+- **`client::Client`** (`std`): a blocking driver over a two-method `Transport` —
+  association with high level security, `get`, `get_selected`, `get_list`, `read_scaled`,
+  `set`, `action`, `release` — with both block mechanisms in both directions, owned
+  `DataBuf` values and one `ClientError`.
+- **`transport::WrapperTransport`** (TCP) and **`transport::HdlcTransport`** (any
+  `Read + Write`), with a 30-second default timeout.
+- **`security::OsRandom`** and `RustCryptoProvider::os(keys)` (`std`): the operating
+  system's randomness for HLS challenges, via `getrandom`. The examples no longer ship a
+  counter in its place.
+- `DataBuf` accessors (`as_i64`, `as_u64`, `as_bool`, `as_bytes`, `as_str`, `as_array`,
+  `as_structure`, `as_datetime`, `as_obis`) and a readable `Display`.
+- `hdlc::Reassembler::{resume, state}` and `ReassemblyState`, for a driver that owns the
+  storage.
+- A `client_response` fuzz target, and `tests/layering.rs`, which fails if `cosem` names
+  `xdlms` again.
+
+### Changed (breaking)
+
+- `client::Response` gains `Pending`, `Acknowledge` and `BlocksAcked`.
+- `ServerConfig` and `ClientConfig` gain `gbt_window`.
+- `Server::handle` may return `Ok(0)`: nothing to send.
+- `Conformance::CLIENT_DEFAULT` and `SERVER_DEFAULT` include `GENERAL_BLOCK_TRANSFER`, so
+  two peers on the defaults answer large reads with GBT rather than service-level blocks.
+  Clear the bit to keep the old behaviour.
+- `SelectiveAccess` lives in `cosem` (re-exported from `xdlms`), so the object model no
+  longer depends on the application layer.
+- `GbtReceiver` acknowledges when the sender's streaming bit is clear or its own window
+  fills, rather than counting the sender's window — the reading that cannot deadlock.
+
+## [0.1.0] — 2026-11-22
 
 First release worth using. Everything below `0.1.0` was unpublished groundwork.
+Published as `dlms-cosem-rs` and, renamed, as `dlms-cosem-kit`.
 
 ### Added
 
@@ -60,4 +104,5 @@ at — see [the status page](https://hupe1980.github.io/dlms-cosem-kit/docs/stat
 **Interoperability has not been tested.** Almost every green test is this crate agreeing
 with itself.
 
+[0.2.0]: https://github.com/hupe1980/dlms-cosem-kit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hupe1980/dlms-cosem-kit/releases/tag/v0.1.0

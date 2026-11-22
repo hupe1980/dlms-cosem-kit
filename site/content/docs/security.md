@@ -157,7 +157,7 @@ let session: ClientSession<_> = ClientSession::new(
         security: SecurityPolicy::authenticated_encrypted(SecuritySuite::Suite0),
         ..Default::default()
     },
-    RustCryptoProvider::with_rng(KeyRing::new(guek, gak), os_rng),
+    RustCryptoProvider::os(KeyRing::new(guek, gak)),   // challenges from the OS; `with_rng` for a TRNG
 );
 ```
 

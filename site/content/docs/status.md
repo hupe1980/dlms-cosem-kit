@@ -11,8 +11,13 @@ than kept stable; the minor version is the breaking one. Build it from the repos
 
 - The codec, OBIS, A-XDR including compact arrays and the delta types, BER and ACSE.
 - Every APDU tag. GET, SET, ACTION and ACCESS, every batched `with-list` form, push, and
-  general block transfer — the framing **and** the edition-9 procedure with its streaming
-  window and retry.
+  general block transfer — the framing, the edition-9 procedure with its streaming
+  window and retry, and **both engines choosing and driving it themselves**, for every
+  service and in both directions.
+- **A blocking `Client` driver** (`std`) over a two-method `Transport`, with the wrapper
+  over TCP and HDLC over any byte stream shipped: association with high level security,
+  GET/SET/ACTION with both block mechanisms in both directions, list reads, scaled register
+  reads, owned values, one error type, socket timeouts by default.
 - **Short-name referencing**, behind the `sn` feature and off by default: Read, Write,
   UnconfirmedWrite and InformationReport, driven from both engines, with block transfer
   for a long read. It goes through the *same* object store, the same access control and
@@ -77,8 +82,9 @@ by name.
 
 The CoAP transport; reliable (confirmed) push and push *scheduling*; SMS, M-Bus and mode E;
 gateway *routing*, though the gateway PDU itself encodes and decodes; short-name **write**
-block transfer; companion-profile content; `tokio` and `embedded-io` driver adapters; a
-command-line tool.
+block transfer; companion-profile content; `tokio` and `embedded-io` drivers (the blocking
+driver is `std`-only; both would build on the same session API it does); a command-line
+tool.
 
 **HDLC does not retransmit** and **push has no schedule** for the same structural reason:
 both need a timer, and there is no clock in the crate. Both are named on their pages rather
@@ -123,8 +129,11 @@ GMAC, under a dedicated key, under suite 2, and in short-name referencing. A rep
 request does not move the breaker twice, and neither does one replayed across a
 reconnection. A downgraded response is refused, and so is one naming the wrong key set. A
 client whose counter has gone stale is told the value to move to. A 1500-byte value is
-written over several blocks and read back byte for byte. All of that is real, and none of
-it is independent.
+written over several blocks and read back byte for byte. An 8 KiB value crosses as general
+block transfer at a window of four with a quarter of the acknowledgements, a block dropped
+mid-window is resent exactly once, and the same read runs over the wrapper and over HDLC
+through the blocking driver. All of that is real, and none of it is independent — both ends
+of every GBT test share this crate's reading of the window fields.
 
 > **Interoperability has not been tested.** A stack can be entirely self-consistent and
 > speak to nothing — two implementations written together share a misreading invisibly, and
@@ -135,7 +144,7 @@ it is independent.
 That is the largest open gap, it is ahead of new features in priority, and stating it is
 more useful than a claim that would later have to be withdrawn.
 
-## Two conventions labelled as derived
+## Conventions labelled as derived
 
 Where the normative clause is not in the material this project can read, the reading is
 implemented, said out loud, and re-checked later:
@@ -144,12 +153,19 @@ implemented, said out loud, and re-checked later:
   `null-data` in the slot of anything that produced none.
 - **The unsigned delta types' sign** — treated as unsigned increments, which is what their
   names say and what makes them worth having.
+- **General block transfer's window and streaming fields** — the window read as the
+  sender's own receive window, the block with the streaming bit clear as the one to
+  acknowledge. One second implementation agrees; the clause itself is not on disk. The
+  reading is the one that cannot deadlock against either interpretation.
+- **HDLC segments within a window** — sent back to back, the poll/final bit only on the
+  last. A meter that insists on a receive-ready after *every* segment would stall it; no
+  capture from hardware has settled which meters do.
 - **`InformationReport`'s timestamp** — an `OPTIONAL GeneralizedTime`, whose A-XDR encoding
   is not stated in material this project can read. It is handed over as the octets the peer
   sent rather than decoded under a guess, because a timestamp read wrongly is a reading
   dated wrongly and carries no error with it.
 
-Both fail loudly where they can. An ACCESS response whose lists are different lengths is
+The ACCESS and delta conventions fail loudly where they can. An ACCESS response whose lists are different lengths is
 refused rather than paired up, and a delta whose width disagrees with the value it follows
 is a type mismatch rather than a silent widening.
 

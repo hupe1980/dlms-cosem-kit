@@ -191,11 +191,16 @@ fn suite2_pair() -> (Client, Meter) {
     (client, server)
 }
 
+/// What these pairs propose: everything but general block transfer, so a reply too large
+/// for one APDU exercises the *service-level* block forms. `tests/gbt.rs` covers GBT.
+const NO_GBT: dlms_cosem_kit::xdlms::Conformance = dlms_cosem_kit::xdlms::Conformance::CLIENT_DEFAULT
+    .difference(dlms_cosem_kit::xdlms::Conformance::GENERAL_BLOCK_TRANSFER);
+
 /// A plain pair with a small negotiated PDU size, so an ordinary attribute fits and a
 /// load profile cannot.
 fn small_pdu_pair() -> (Client, BigMeter) {
     let client = ClientSession::new(
-        ClientConfig { client_sap: 0x10, max_pdu_size: 256, ..Default::default() },
+        ClientConfig { client_sap: 0x10, max_pdu_size: 256, conformance: NO_GBT, ..Default::default() },
         RustCryptoProvider::with_rng(KeyRing::default(), FixedRandom(0xA1)),
     );
     let server = Server::new(
@@ -217,6 +222,7 @@ fn small_pdu_ciphered_pair() -> (Client, BigMeter) {
             mechanism: AuthMechanism::HighGmac,
             security: policy,
             max_pdu_size: 128,
+            conformance: NO_GBT,
             ..Default::default()
         },
         RustCryptoProvider::with_rng(KeyRing::new(GUEK, GAK), FixedRandom(0xA1)),
@@ -2005,7 +2011,8 @@ fn an_oversized_request_is_refused_as_pdu_too_long() {
     let mut s = [0u8; 512];
     let oversized = vec![0xC0u8; 2048];
     let m = server.handle(&oversized, &mut s).unwrap();
-    let dlms_cosem_kit::Apdu::ExceptionResponse(e) = dlms_cosem_kit::Apdu::from_bytes(&s[..m]).unwrap() else {
+    let dlms_cosem_kit::Apdu::ExceptionResponse(e) = dlms_cosem_kit::Apdu::from_bytes(&s[..m]).unwrap()
+    else {
         panic!("expected an exception response")
     };
     assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::PduTooLong);

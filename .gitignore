@@ -22,13 +22,25 @@ target
 
 # Internal architecture notes, deliberately not tracked. `tests/concepts.rs` (M0) guards
 # them and skips when the directory is absent, which is what CI sees.
+#
+# The third-party corpus — the Blue and Green Book excerpts, IEC 62056 sample pages, the
+# P1 companion standards — lives at `concepts/reference/` and is covered by this line:
+# DLMS UA / IEC copyrighted material, not redistributable, indexed in
+# `concepts/REFERENCES.md`.
 /concepts/
 # Its predecessor: a single unlinked design document, split into concepts/. Kept ignored
 # so it cannot come back by accident.
 CONCEPT.md
 
-# Downloaded specifications (DLMS UA / IEC copyrighted material, not redistributable)
+# This project's own feature specifications, and the Spec Kit machinery that produces
+# them: one `specs/NNN-slug/` per ROADMAP item, `.specify/memory/constitution.md`, the
+# threatspec extension, and the `/speckit-*` skills. Same rule as `concepts/` — internal,
+# and the published tree may not cite a path its reader does not have;
+# scripts/concepts-check.sh fails on one that does. Matching eebus, ocpp-kit and sepa.
 /specs/
+/.specify/
+/.claude/
+.DS_Store
 
 # The documentation site is built from `site/` by Zola; the output is not tracked.
 /site/public/

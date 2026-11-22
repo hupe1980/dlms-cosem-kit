@@ -151,6 +151,14 @@ pub(crate) struct Incoming<'a> {
     pub plain_allowed: &'a [ApduTag],
 }
 
+/// What the header of an incoming APDU says, once every check that needs no key has run.
+enum Parsed<'a> {
+    /// Unprotected, and allowed to be.
+    Plain,
+    /// Protected: decrypt `ciphered` under `policy`.
+    Ciphered { policy: SecurityPolicy, expect_tag: Option<ApduTag>, ciphered: CipheredService<'a> },
+}
+
 /// Take protection off `apdu` into `buf`, returning the plain APDU.
 ///
 /// The invocation counter is checked against `replay` **before** any cryptography and
@@ -163,6 +171,67 @@ pub(crate) fn unprotect_apdu<'b, P: CryptoProvider>(
     apdu: &[u8],
     buf: &'b mut [u8],
 ) -> Result<&'b [u8]> {
+    match parse_header(ctx, apdu)? {
+        Parsed::Plain => {
+            let n = apdu.len();
+            buf.get_mut(..n)
+                .ok_or_else(|| Error::new(ErrorKind::BufferTooSmall { needed: n }, 0))?
+                .copy_from_slice(apdu);
+            buf.get(..n).ok_or_else(|| Error::new(ErrorKind::InvalidLength, 0))
+        }
+        Parsed::Ciphered { policy, expect_tag, ciphered } => {
+            let n = ciphered.payload.len();
+            buf.get_mut(..n)
+                .ok_or_else(|| Error::new(ErrorKind::BufferTooSmall { needed: n }, 0))?
+                .copy_from_slice(ciphered.payload);
+            let control = ciphered.security_control;
+            let counter = ciphered.invocation_counter;
+            let len = decrypt_front(protector, ctx, replay, policy, expect_tag, control, counter, n, buf)?;
+            buf.get(..len).ok_or_else(|| Error::new(ErrorKind::InvalidLength, 0))
+        }
+    }
+}
+
+/// Take protection off an APDU that already sits in `buf[..len]`, in place.
+///
+/// The same checks as [`unprotect_apdu`], in the same order — they are the same code. What
+/// differs is only where the bytes live: a GBT transfer is reassembled into the buffer it
+/// will be read from, and copying it out to decrypt it would need a second buffer of the
+/// same size, which is the one thing a meter does not have. Returns the plain APDU's range.
+#[cfg(feature = "client")]
+pub(crate) fn unprotect_apdu_in_place<P: CryptoProvider>(
+    protector: &Protector<P>,
+    ctx: &Incoming<'_>,
+    replay: &mut ReplayWindow,
+    buf: &mut [u8],
+    len: usize,
+) -> Result<core::ops::Range<usize>> {
+    let apdu = buf.get(..len).ok_or_else(|| Error::new(ErrorKind::InvalidLength, 0))?;
+    let (policy, expect_tag, control, counter, start, n) = match parse_header(ctx, apdu)? {
+        Parsed::Plain => return Ok(0..len),
+        Parsed::Ciphered { policy, expect_tag, ciphered } => {
+            // The payload is a sub-slice of `apdu`, so its offset is the distance between
+            // the two starts — arithmetic on addresses, not a dereference.
+            let start = (ciphered.payload.as_ptr() as usize).saturating_sub(apdu.as_ptr() as usize);
+            (
+                policy,
+                expect_tag,
+                ciphered.security_control,
+                ciphered.invocation_counter,
+                start,
+                ciphered.payload.len(),
+            )
+        }
+    };
+    let end =
+        start.checked_add(n).filter(|&e| e <= len).ok_or_else(|| Error::new(ErrorKind::InvalidLength, 0))?;
+    buf.copy_within(start..end, 0);
+    let plain = decrypt_front(protector, ctx, replay, policy, expect_tag, control, counter, n, buf)?;
+    Ok(0..plain)
+}
+
+/// Every check on an incoming APDU that needs no key.
+fn parse_header<'a>(ctx: &Incoming<'_>, apdu: &'a [u8]) -> Result<Parsed<'a>> {
     let tag_byte = apdu.first().copied().unwrap_or(0);
     let tag = ApduTag::from_u8(tag_byte).ok_or_else(|| Error::new(ErrorKind::InvalidTag(tag_byte), 0))?;
 
@@ -251,11 +320,7 @@ pub(crate) fn unprotect_apdu<'b, P: CryptoProvider>(
                 if !ctx.policy.is_none() && !ctx.plain_allowed.contains(&tag) {
                     return Err(Error::new(ErrorKind::UnexpectedMessage, 0));
                 }
-                let n = apdu.len();
-                buf.get_mut(..n)
-                    .ok_or_else(|| Error::new(ErrorKind::BufferTooSmall { needed: n }, 0))?
-                    .copy_from_slice(apdu);
-                return buf.get(..n).ok_or_else(|| Error::new(ErrorKind::InvalidLength, 0));
+                return Ok(Parsed::Plain);
             };
             // The `glo-`/`ded-` tag names a key set, and after the handshake both ends
             // have agreed which one that is. A frame naming the other one is refused for
@@ -271,22 +336,36 @@ pub(crate) fn unprotect_apdu<'b, P: CryptoProvider>(
             (ctx.policy, Some(plain_tag), CipheredService::decode(&mut r)?)
         }
     };
+    Ok(Parsed::Ciphered { policy, expect_tag, ciphered })
+}
 
+/// Decrypt the ciphertext at the front of `buf[..n]` in place, spending the counter only
+/// once the tag has verified. Returns the plain APDU's length.
+#[allow(clippy::too_many_arguments, reason = "the header fields are passed by value so the payload can move")]
+fn decrypt_front<P: CryptoProvider>(
+    protector: &Protector<P>,
+    ctx: &Incoming<'_>,
+    replay: &mut ReplayWindow,
+    policy: SecurityPolicy,
+    expect_tag: Option<ApduTag>,
+    control: crate::xdlms::SecurityControl,
+    counter: u32,
+    n: usize,
+    buf: &mut [u8],
+) -> Result<usize> {
     let peer = ctx.peer.ok_or_else(|| Error::new(ErrorKind::UnexpectedMessage, 0))?;
-    replay.check(ciphered.invocation_counter)?;
+    replay.check(counter)?;
 
     // The deciphered plaintext is the *whole* plain APDU, its own tag included — the
     // `glo-`/`ded-` tag outside names the same service, and a decoder that prepends it
     // again reads the tag as the service's first field.
-    let n = ciphered.payload.len();
     let body = buf.get_mut(..n).ok_or_else(|| Error::new(ErrorKind::BufferTooSmall { needed: n }, 0))?;
-    body.copy_from_slice(ciphered.payload);
     let plain_len = protector
         .unprotect_as(
             policy,
-            ciphered.security_control,
+            control,
             &peer,
-            ciphered.invocation_counter,
+            counter,
             ctx.auth_key.ok_or_else(|| Error::new(ErrorKind::Unsupported, 0))?,
             body,
         )?
@@ -294,7 +373,7 @@ pub(crate) fn unprotect_apdu<'b, P: CryptoProvider>(
 
     // The tag has verified: the counter is spent, and this exact APDU can never be
     // replayed into this association again.
-    replay.accept(ciphered.invocation_counter)?;
+    replay.accept(counter)?;
 
     // For the `glo-`/`ded-` forms the outer tag and the inner one must name the same
     // service. They are authenticated together, so a mismatch is a bug rather than an
@@ -304,5 +383,5 @@ pub(crate) fn unprotect_apdu<'b, P: CryptoProvider>(
             return Err(Error::new(ErrorKind::UnexpectedMessage, 0));
         }
     }
-    buf.get(..plain_len).ok_or_else(|| Error::new(ErrorKind::InvalidLength, 0))
+    Ok(plain_len)
 }

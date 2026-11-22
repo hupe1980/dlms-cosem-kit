@@ -18,17 +18,17 @@
       <a class="btn" href="{{ config.extra.repository }}">Source</a>
     </div>
     <p class="muted" style="margin-top:1.5rem">
-      <span class="pill pill-warn">pre-release</span>
-      Not yet published to crates.io — build it from
-      <a href="{{ config.extra.repository }}">the repository</a>. The API is being made
-      right rather than kept stable.
+      <span class="pill pill-warn">pre-1.0</span>
+      On <a href="{{ config.extra.crates_io }}">crates.io</a> as <code>dlms-cosem-kit</code>.
+      The API is being made right rather than kept stable; the minor version is the breaking one.
     </p>
   </section>
 
   <div class="split">
     <div>
-      <h2 id="read">Read a register</h2>
-      <p>The session hands you bytes and takes bytes back. Where they go is yours.</p>
+      <h2 id="read">Read a meter</h2>
+      <p>A blocking driver for a head-end or a tool. Underneath it, the session hands you
+      bytes and takes bytes back — which is what runs in firmware and under an async runtime.</p>
 {{ load_data(path="includes/snippet-read.md", format="plain") | markdown | safe }}
     </div>
     <div>
@@ -94,7 +94,7 @@
       <tr><td><code>security</code></td><td>Suites 0–2 at both key widths, <code>glo-</code>/<code>ded-</code>/general ciphering, HLS-GMAC, invocation counters with a real replay window, AES key wrap — behind a swappable provider.</td></tr>
       <tr><td><code>cosem</code></td><td>{{ config.extra.class_count }} interface classes as a registry, OBIS, access rights in both shapes, profile buffers with every compression undone.</td></tr>
       <tr><td><code>transport</code></td><td>HDLC with a resynchronising frame finder, segmentation and a link machine; the TCP/UDP wrapper; the P1 customer interface.</td></tr>
-      <tr><td><code>client</code>, <code>server</code></td><td>Sans-I/O state machines with block transfer both ways, every batched service, both referencing modes, and both halves of push.</td></tr>
+      <tr><td><code>client</code>, <code>server</code></td><td>Sans-I/O state machines with block transfer both ways — general block transfer chosen and driven by both engines — every batched service, both referencing modes, and both halves of push. With <code>std</code>, a blocking <code>Client</code> over the shipped wrapper and HDLC transports.</td></tr>
     </tbody>
   </table>
   </div>

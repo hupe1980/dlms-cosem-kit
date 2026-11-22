@@ -662,7 +662,7 @@ mod tests {
         assert_eq!(w.truncate(5).unwrap_err().kind, ErrorKind::InvalidLength);
         assert_eq!(w.as_slice(), [1, 2], "and leaves the position where it was");
         assert!(w.truncate(0).is_ok());
-        assert!(w.as_slice().is_empty());
+        assert_eq!(w.as_slice(), &[] as &[u8]);
     }
 
     #[test]

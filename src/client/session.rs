@@ -8,15 +8,16 @@ use crate::axdr::Data;
 use crate::codec::{Decode, Encode, Error, ErrorKind, Reader, Result, SliceWriter, Writer};
 use crate::cosem::InterfaceClass;
 use crate::obis::Obis;
-use crate::security::wrap::{Incoming, Outgoing, protect_apdu, unprotect_apdu};
+use crate::security::wrap::{Incoming, Outgoing, protect_apdu, unprotect_apdu, unprotect_apdu_in_place};
 use crate::security::{
     CryptoProvider, InvocationCounter, Protector, ReplayWindow, SecurityPolicy, SystemTitle,
 };
 use crate::xdlms::{
     AccessRequestSpecification, ActionRequest, Apdu, ApduTag, AttributeDescriptor,
     AttributeDescriptorWithSelection, Conformance, DataAccessResult, DataBlockSA, ExceptionResponse,
-    GetDataResult, GetRequest, GetResponse, InitiateRequest, InitiateResponse, InvokeId, List, LongInvokeId,
-    MethodDescriptor, Protection, SelectiveAccess, SetRequest, SetResponse,
+    GbtAction, GbtRecvCursor, GeneralBlockTransfer, GetDataResult, GetRequest, GetResponse, InitiateRequest,
+    InitiateResponse, InvokeId, List, LongInvokeId, MethodDescriptor, Protection, SelectiveAccess,
+    SetRequest, SetResponse,
 };
 
 /// The APDUs a client accepts from a server with no protection on them, even in a
@@ -139,6 +140,44 @@ pub enum Response<'a> {
     Exception(ExceptionResponse),
     /// The server released the association.
     Released,
+    /// A block of a response arriving as general block transfer, inside a window the
+    /// server is still streaming. Receive the next APDU; send nothing.
+    Pending,
+    /// A block of a response arriving as general block transfer, which the server wants
+    /// acknowledged. Send these bytes, then receive the next APDU.
+    Acknowledge(GbtAck),
+    /// The server acknowledged blocks of a request this client is sending as general
+    /// block transfer: everything up to `acked`, and it can take `window` more.
+    BlocksAcked {
+        /// The highest block the server received in order.
+        acked: u16,
+        /// How many blocks the server will take before it acknowledges again.
+        window: u8,
+    },
+}
+
+/// A general-block-transfer acknowledgement, ready to send.
+///
+/// Seven bytes held by value, so answering a block needs no buffer of the caller's and
+/// borrows nothing the next call overwrites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GbtAck {
+    bytes: [u8; 7],
+}
+
+impl GbtAck {
+    fn new(acked: u16, window: u8) -> Result<Self> {
+        let mut bytes = [0u8; 7];
+        let mut w = SliceWriter::new(&mut bytes);
+        Apdu::GeneralBlockTransfer(GeneralBlockTransfer::ack(acked, window)).encode(&mut w)?;
+        Ok(Self { bytes })
+    }
+
+    /// The APDU to send.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
 }
 
 /// How the client identifies itself and what it demands.
@@ -179,6 +218,12 @@ pub struct ClientConfig {
     ///
     /// Zero — strictly increasing — is right for HDLC and TCP.
     pub replay_window: u32,
+    /// How many general-block-transfer blocks this client takes before it acknowledges,
+    /// announced to the server in every acknowledgement. Clamped to `1..=63`.
+    ///
+    /// Larger windows cost fewer round trips on a slow link and need nothing more: the
+    /// blocks land in the caller's buffer whatever the window.
+    pub gbt_window: u8,
 }
 
 impl Default for ClientConfig {
@@ -195,6 +240,7 @@ impl Default for ClientConfig {
             challenge_len: 16,
             invocation_counter: 0,
             replay_window: 0,
+            gbt_window: 4,
         }
     }
 }
@@ -225,7 +271,17 @@ pub struct ClientSession<P, const N: usize = 1024> {
     client_challenge_len: usize,
     server_challenge: [u8; 64],
     server_challenge_len: usize,
+    /// A response arriving as general block transfer, gathering in the caller's buffer.
+    gbt_rx: Option<GbtRecvCursor>,
     scratch: [u8; N],
+}
+
+/// What one general-block-transfer APDU came to.
+enum GbtStep {
+    /// Nothing to decode yet.
+    Answer(Response<'static>),
+    /// The whole response is in the caller's buffer at this range, protection removed.
+    Complete(core::ops::Range<usize>),
 }
 
 impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
@@ -251,6 +307,7 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
             client_challenge_len: 0,
             server_challenge: [0; 64],
             server_challenge_len: 0,
+            gbt_rx: None,
             scratch: [0; N],
         }
     }
@@ -338,6 +395,7 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
 
     fn next_long_invoke_id(&mut self) -> LongInvokeId {
         self.invoke_id = self.invoke_id.wrapping_add(1) & 0x0F;
+        self.gbt_rx = None;
         // ACSE's short invoke id is not in play for an ACCESS exchange, so nothing is
         // outstanding under one: leaving a stale id here would have a later block
         // request continue an invocation that is over.
@@ -347,6 +405,9 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
 
     fn next_invoke_id(&mut self) -> InvokeId {
         self.invoke_id = self.invoke_id.wrapping_add(1) & 0x0F;
+        // A new request abandons a response still arriving in blocks: its remaining
+        // blocks answer a question nobody is asking any more.
+        self.gbt_rx = None;
         let id = InvokeId::confirmed(self.invoke_id);
         self.outstanding = Some(id);
         id
@@ -1253,11 +1314,31 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
     /// it. That is why it is a parameter: the caller decides where a decrypted APDU
     /// lives, and it lives no longer than the caller lets it.
     ///
+    /// **General block transfer.** A response the server sends as GBT arrives one block
+    /// per call. Each block is gathered into `buf`, so pass **the same buffer** for every
+    /// block of one response, large enough for the whole protected response. Until it is
+    /// complete the answer is [`Response::Pending`] (receive again) or
+    /// [`Response::Acknowledge`] (send its bytes, then receive again); then it is the
+    /// response itself. The [`Client`](crate::client::Client) driver does all of this.
+    ///
     /// # Errors
     /// When the APDU is malformed, protected more weakly than the policy demands, or
-    /// not a response at all.
+    /// not a response at all; when a GBT response outgrows `buf`.
     pub fn handle_response<'b>(&mut self, apdu: &[u8], buf: &'b mut [u8]) -> Result<Response<'b>> {
-        let plain = self.unprotect_into(apdu, buf)?;
+        let plain: &'b [u8] = if apdu.first() == Some(&ApduTag::GeneralBlockTransfer.as_u8()) {
+            match self.take_gbt_block(apdu, buf)? {
+                GbtStep::Answer(r) => return Ok(r),
+                GbtStep::Complete(range) => {
+                    let done: &'b [u8] = buf;
+                    done.get(range).ok_or(Error::new(ErrorKind::InvalidLength, 0))?
+                }
+            }
+        } else {
+            // A whole response while blocks were arriving ends that transfer: the server
+            // has moved on, and gathering more of it would splice two answers.
+            self.gbt_rx = None;
+            self.unprotect_into(apdu, buf)?
+        };
         let decoded = Apdu::from_bytes(plain)?;
         // An answer must be to the question that was asked. On a shared link — an
         // RS-485 bus, a concentrator multiplexing several meters — a response with
@@ -1364,6 +1445,78 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
     }
 
     /// Remove protection from an incoming APDU, if it has any.
+    /// Take one general-block-transfer APDU of a response.
+    ///
+    /// Blocks are gathered into `buf` — the caller's, and the same one on every call of a
+    /// transfer — and protection comes off the whole response once, in place, with the same
+    /// policy check as a single APDU: a block is never decrypted alone, and a plaintext
+    /// response smuggled in blocks into a ciphered association is refused as a downgrade.
+    fn take_gbt_block(&mut self, apdu: &[u8], buf: &mut [u8]) -> Result<GbtStep> {
+        if self.state != SessionState::Associated {
+            return Err(Error::new(ErrorKind::UnexpectedMessage, 0));
+        }
+        let Apdu::GeneralBlockTransfer(block) = Apdu::from_bytes(apdu)? else {
+            return Err(Error::new(ErrorKind::UnexpectedMessage, 0));
+        };
+        // An empty block that is not the last one is an acknowledgement of blocks this
+        // client is sending.
+        if block.block_data.is_empty() && !block.control.last_block() {
+            return Ok(GbtStep::Answer(Response::BlocksAcked {
+                acked: block.block_number_ack,
+                window: block.control.window(),
+            }));
+        }
+        let mut cursor = match self.gbt_rx {
+            Some(c) => c,
+            None if block.block_number == 1 => GbtRecvCursor::new(self.config.gbt_window),
+            // A block from the middle of a transfer nobody started.
+            None => return Err(Error::new(ErrorKind::UnexpectedMessage, 0)),
+        };
+        let action = match cursor.push(buf, &block) {
+            Ok(a) => a,
+            Err(e) => {
+                self.gbt_rx = None;
+                return Err(e);
+            }
+        };
+        match action {
+            GbtAction::Await => {
+                self.gbt_rx = Some(cursor);
+                Ok(GbtStep::Answer(Response::Pending))
+            }
+            GbtAction::Acknowledge => {
+                self.gbt_rx = Some(cursor);
+                Ok(GbtStep::Answer(Response::Acknowledge(GbtAck::new(
+                    cursor.acknowledged(),
+                    cursor.window(),
+                )?)))
+            }
+            GbtAction::Complete => {
+                self.gbt_rx = None;
+                let ctx = Incoming {
+                    local: self.config.system_title,
+                    peer: self.server_system_title,
+                    auth_key: self.protector.auth_key(),
+                    policy: self.protector.policy(),
+                    plain_allowed: PLAIN_FROM_SERVER,
+                };
+                let range =
+                    unprotect_apdu_in_place(&self.protector, &ctx, &mut self.peer_replay, buf, cursor.len())?;
+                // A reassembled response may not itself be another block transfer.
+                if buf.get(range.start) == Some(&ApduTag::GeneralBlockTransfer.as_u8()) {
+                    return Err(Error::new(ErrorKind::UnexpectedMessage, 0));
+                }
+                Ok(GbtStep::Complete(range))
+            }
+        }
+    }
+
+    /// True while a response is arriving as general block transfer.
+    #[must_use]
+    pub const fn is_receiving_blocks(&self) -> bool {
+        self.gbt_rx.is_some()
+    }
+
     fn unprotect_into<'b>(&mut self, apdu: &[u8], buf: &'b mut [u8]) -> Result<&'b [u8]> {
         let ctx = Incoming {
             local: self.config.system_title,

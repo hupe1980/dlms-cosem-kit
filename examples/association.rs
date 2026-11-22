@@ -278,9 +278,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Randomness is *injected*: a provider with no entropy source refuses to produce a high
 /// level security challenge rather than returning something predictable.
 ///
-/// This one is a counter, so the example prints the same bytes every run. Never do this
-/// anywhere a network can reach — wire in `getrandom`, `rand`, or the platform's hardware
-/// generator.
+/// This one is a counter, so the example prints the same bytes every run. Anywhere a
+/// network can reach, use `RustCryptoProvider::os` (or the platform's hardware generator
+/// through `with_rng`).
 struct Rng;
 
 impl dlms_cosem_kit::security::RandomSource for Rng {

@@ -595,11 +595,36 @@ pub struct Reassembler<'a> {
     complete: bool,
 }
 
+/// Where a [`Reassembler`] is, without the buffer it fills.
+///
+/// A reassembler borrows its storage, so a driver that owns the storage cannot keep the
+/// reassembler between reads. It keeps this instead and resumes with
+/// [`Reassembler::resume`] over the same buffer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReassemblyState {
+    len: usize,
+    expect_ns: Option<u8>,
+    complete: bool,
+}
+
 impl<'a> Reassembler<'a> {
     /// A reassembler filling `buf`.
     #[must_use]
     pub fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, len: 0, expect_ns: None, complete: false }
+    }
+
+    /// Continue a unit over `buf` — the same buffer the saved [`ReassemblyState`] came from.
+    #[must_use]
+    pub fn resume(buf: &'a mut [u8], state: ReassemblyState) -> Self {
+        let len = state.len.min(buf.len());
+        Self { buf, len, expect_ns: state.expect_ns, complete: state.complete }
+    }
+
+    /// Where this reassembler is, to resume later.
+    #[must_use]
+    pub const fn state(&self) -> ReassemblyState {
+        ReassemblyState { len: self.len, expect_ns: self.expect_ns, complete: self.complete }
     }
 
     /// Feed one frame. Returns true when a complete LSDU is available.
@@ -1219,7 +1244,7 @@ mod tests {
         frame.encode(&mut w).unwrap();
         let (back, _) = decode_frame(w.as_slice()).unwrap();
         assert_eq!(back, frame);
-        assert!(back.information.is_empty());
+        assert_eq!(back.information, &[] as &[u8]);
     }
 
     #[test]

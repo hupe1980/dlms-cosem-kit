@@ -1,23 +1,13 @@
 ```rust
-let mut session: ClientSession<_> = ClientSession::new(
-    ClientConfig { client_sap: 0x10, ..Default::default() },
-    RustCryptoProvider::new(KeyRing::default()),
-);
+let link = WrapperTransport::connect("10.0.0.5:4059", 0x10, 0x01)?;
+let mut meter: Client<_, _> =
+    Client::connect(link, ClientConfig::default(), RustCryptoProvider::os(KeyRing::default()))?;
 
-let mut request = [0u8; 512];
-let n = session.associate_request(&mut request)?;
-// ... send request[..n] over HDLC, TCP, CoAP, whatever you have,
-//     and feed the answer back:
-session.handle_associate_response(&response)?;
+// The value with its scaler and unit, exact: "12345678 Wh".
+println!("{}", meter.read_scaled(3, ACTIVE_ENERGY_IMPORT_TOTAL)?);
 
-let n = session.get_request(
-    AttributeDescriptor::new(3, ACTIVE_ENERGY_IMPORT_TOTAL, 2),
-    None,
-    &mut request,
-)?;
-
-let mut scratch = [0u8; 512];
-if let Response::Data(value) = session.handle_response(&answer, &mut scratch)? {
-    println!("meter reads {:?} Wh", value.as_u64());
-}
+// A load profile far larger than one APDU, whole — block transfer and
+// general block transfer happen inside the call.
+let profile = meter.get(AttributeDescriptor::new(7, LOAD_PROFILE, 2))?;
+meter.release()?;
 ```

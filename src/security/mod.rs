@@ -23,6 +23,8 @@ pub use counter::{InvocationCounter, REPLAY_WIDTH_MAX, REPLAY_WINDOW_MAX, Replay
 pub use keys::{Key, KeyRef, KeyRing, KeyUsage, Secret, SystemTitle};
 pub use protect::{KeySet, Protector, SecurityPolicy, constant_time_eq};
 
+#[cfg(all(feature = "std", feature = "suite0"))]
+pub use rustcrypto::OsRandom;
 #[cfg(feature = "suite0")]
 pub use rustcrypto::{FixedRandom, RandomSource, RustCryptoProvider};
 

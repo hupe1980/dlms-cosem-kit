@@ -28,7 +28,7 @@ firmware on a Cortex-M with no allocator.
 
 ```toml
 [dependencies]
-dlms-cosem-kit = "0.0"
+dlms-cosem-kit = "0.1"
 ```
 
 The default feature set is `std`, `client`, `server`, `hdlc`, `wrapper`, `p1`, `suite0`
@@ -47,74 +47,67 @@ and `obis-names`. Take what you need:
 that gates nothing is worse than no flag: it tells you the crate does something it does
 not, and it makes `--all-features` a weaker check than it looks.
 
-## What sans-I/O means for your code
+## Read a meter
 
-There is no `connect`. A session *builds* an APDU into a buffer you own and *consumes* one
-out of a buffer you own:
+With `std`, [`Client`](https://docs.rs/dlms-cosem-kit/latest/dlms_cosem_kit/client/struct.Client.html)
+is a blocking driver over a transport. It runs the association — every pass of high level
+security included — and does block transfer and general block transfer inside each call,
+in both directions:
+
+```rust,ignore
+use dlms_cosem_kit::client::{Client, ClientConfig};
+use dlms_cosem_kit::obis::names::ACTIVE_ENERGY_IMPORT_TOTAL;
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
+use dlms_cosem_kit::transport::WrapperTransport;
+use dlms_cosem_kit::xdlms::AttributeDescriptor;
+
+let link = WrapperTransport::connect("10.0.0.5:4059", 0x10, 0x01)?;   // public client → management LD
+let mut meter: Client<_, _> =
+    Client::connect(link, ClientConfig::default(), RustCryptoProvider::os(KeyRing::default()))?;
+
+println!("{}", meter.read_scaled(3, ACTIVE_ENERGY_IMPORT_TOTAL)?);      // 12345678 Wh
+let profile = meter.get(AttributeDescriptor::new(7, LOAD_PROFILE, 2))?; // however many blocks
+meter.release()?;
+```
+
+`read_scaled(3, …)` reads attributes 2 and 3 of a *Register* (class 3) in one round trip —
+the value and its `scaler_unit` — and keeps them as an exact integer and an exponent
+rather than a float, because 12 345 with a scaler of −3 is exactly 12.345 kWh and
+`12.345_f64` is not. Every failure is one `ClientError` that names what the meter said: a
+rejected association with its diagnostic, a refused attribute with its
+`DataAccessResult`, a stale invocation counter with the value to move to.
+
+`HdlcTransport` is the other shipped transport — an optical probe, an RS-485 bus or HDLC
+over TCP — and anything else is a two-method `Transport` trait.
+
+## What sans-I/O means underneath
+
+The driver is a convenience. Underneath it, the session has no `connect`: it *builds* an
+APDU into a buffer you own and *consumes* one out of a buffer you own:
 
 ```rust,ignore
 let n = session.associate_request(&mut request)?;      // bytes out
 session.handle_associate_response(&reply)?;            // bytes in
 ```
 
-Moving those bytes is yours: a `TcpStream`, a serial port, an `embedded-io` device, a
-`Vec` in a test. Two consequences are worth knowing up front.
+That is the layer for firmware, for an async runtime, and for tests: moving the bytes is
+yours — a serial port, an `embedded-io` device, a `Vec`. Two consequences are worth
+knowing up front.
 
 **Buffers are parameters, not fields.** `handle_response(apdu, buf)` takes the scratch
 buffer to decrypt into, and the value it returns borrows that buffer. A buffer hidden
 inside the session would make the borrow checker refuse a caller that wants to hold a
 value across the next request, and would hide how long a decrypted plaintext lingers in
-memory. Making it a parameter puts both facts in the signature.
+memory. Making it a parameter puts both facts in the signature. A response arriving as
+general block transfer is gathered into that same buffer, so pass the same one for every
+block of it.
 
 **Randomness is injected; time is data.** A provider without an entropy source refuses to
-produce a high-level-security challenge rather than returning something predictable. There
-is no clock at all — a timestamp is a `DateTime` you supply, and nothing in the crate can
-say “wake me in three seconds”.
-
-## Read one register over TCP
-
-```rust,ignore
-use std::net::TcpStream;
-
-use dlms_cosem_kit::client::{AssociationStep, ClientConfig, ClientSession, Response};
-use dlms_cosem_kit::obis::names::ACTIVE_ENERGY_IMPORT_TOTAL;
-use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
-use dlms_cosem_kit::xdlms::AttributeDescriptor;
-
-let mut sock = TcpStream::connect("10.0.0.5:4059")?;
-let mut session: ClientSession<_> = ClientSession::new(
-    ClientConfig { client_sap: 0x10, ..Default::default() },   // 0x10 = the public client
-    RustCryptoProvider::new(KeyRing::default()),
-);
-
-let mut request = [0u8; 1024];
-
-// Two passes with no authentication; four with high level security.
-let n = session.associate_request(&mut request)?;
-let aare = exchange(&mut sock, &request[..n])?;
-assert_eq!(session.handle_associate_response(&aare)?, AssociationStep::Established);
-
-let n = session.get_request(
-    AttributeDescriptor::new(3, ACTIVE_ENERGY_IMPORT_TOTAL, 2),   // class 3, attribute 2
-    None,                                                          // no selective access
-    &mut request,
-)?;
-let answer = exchange(&mut sock, &request[..n])?;
-
-let mut scratch = [0u8; 1024];
-if let Response::Data(value) = session.handle_response(&answer, &mut scratch)? {
-    println!("{:?} Wh", value.as_u64());
-}
-```
-
-`AttributeDescriptor::new(3, …, 2)` says: interface class 3 (*Register*), this OBIS code,
-attribute 2 (*value*). Attribute 3 of the same class is the `scaler_unit` pair that tells
-you it is watt-hours and where the decimal point goes — the crate keeps that as an exact
-integer and an exponent rather than a float, because 12 345 with a scaler of −3 is exactly
-12.345 kWh and `12.345_f64` is not.
-
-The full version of this recipe, with the wrapper framing and the stream reassembly
-written out, is in the [cookbook](@/docs/cookbook.md).
+produce a high-level-security challenge rather than returning something predictable;
+`RustCryptoProvider::os` uses the operating system's. There is no clock at all — a
+timestamp is a `DateTime` you supply, and nothing in the crate can say “wake me in three
+seconds”. (The shipped transports set a socket timeout; that is the operating system's
+clock, not the crate's.)
 
 ## Run something first
 

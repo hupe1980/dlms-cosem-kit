@@ -25,9 +25,10 @@ use crate::security::{
 use crate::xdlms::{
     AccessRequest, AccessRequestSpecification, AccessResponse, AccessResponseSpecification, ActionRequest,
     ActionResponse, ActionResponseWithOptionalData, ActionResult, Apdu, ApduTag, AttributeDescriptor,
-    Conformance, DataAccessResult, DataBlockG, DataBlockSA, ExceptionResponse, GetDataResult, GetRequest,
-    GetResponse, InitiateRequest, InitiateResponse, InvokeId, List, MAX_ACCESS_ITEMS, MethodDescriptor,
-    Protection, SelectiveAccess, ServiceError, SetRequest, SetResponse, StateError,
+    Conformance, DataAccessResult, DataBlockG, DataBlockSA, ExceptionResponse, GbtAction, GbtRecvCursor,
+    GbtSendCursor, GeneralBlockTransfer, GetDataResult, GetRequest, GetResponse, InitiateRequest,
+    InitiateResponse, InvokeId, List, MAX_ACCESS_ITEMS, MethodDescriptor, Protection, SelectiveAccess,
+    ServiceError, SetRequest, SetResponse, StateError,
 };
 
 /// The APDUs a server accepts from a client with no protection on them, even in a
@@ -56,6 +57,10 @@ const NORMAL_HEADER_MAX: usize = 1 + 1 + 1 + 1;
 /// What an `action-response-normal` costs around its return value: the tag, the response
 /// choice, the invoke id, the action result, and the optional-data usage flag and choice.
 const ACTION_HEADER_MAX: usize = 1 + 1 + 1 + 1 + 1 + 1;
+
+/// What a `general-block-transfer` APDU costs around its block: the tag, the control
+/// byte, the two block numbers, and a length prefix as long as a sixteen-bit length needs.
+const GBT_HEADER_MAX: usize = 1 + 1 + 2 + 2 + 3;
 
 /// A transfer in flight: bytes going out block by block, or a value arriving that way.
 ///
@@ -112,6 +117,22 @@ enum Transfer {
         /// The number of the last block accepted.
         block: u32,
     },
+    /// A reply going out as general block transfer; its bytes are `response[..len]`.
+    ///
+    /// GBT replaces the service-level forms above when the client negotiated it, so the
+    /// two never share the buffer.
+    GbtSending {
+        /// Where the reply is in its blocks.
+        cursor: GbtSendCursor,
+        /// The highest of the client's own blocks this end has received, carried in every
+        /// block so a client that sent its request as GBT learns it arrived.
+        peer_ack: u16,
+    },
+    /// A request arriving as general block transfer, gathering in `response`.
+    GbtReceiving {
+        /// Where the request is in its blocks.
+        cursor: GbtRecvCursor,
+    },
 }
 
 /// Which service a [`Transfer::Sending`] is answering.
@@ -166,6 +187,15 @@ pub struct ServerConfig {
     ///
     /// Zero — strictly increasing — is right for HDLC and TCP. See [`ReplayWindow`].
     pub replay_window: u32,
+    /// How many general-block-transfer blocks this server streams before it waits for an
+    /// acknowledgement, and announces it can take. A client's own window lowers it; it is
+    /// clamped to `1..=63`.
+    ///
+    /// GBT is used only when the client negotiates `general-block-transfer`. Then a reply
+    /// too large for the client's PDU size goes out as GBT blocks — for every service,
+    /// including ACCESS and the list forms, which have no block form of their own — and
+    /// `N` bounds the whole reply *APDU*, not only its value.
+    pub gbt_window: u8,
 }
 
 impl Default for ServerConfig {
@@ -181,6 +211,7 @@ impl Default for ServerConfig {
             challenge_len: 16,
             invocation_counter: 0,
             replay_window: 0,
+            gbt_window: 4,
         }
     }
 }
@@ -418,34 +449,54 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
             return self.exception(StateError::ServiceNotAllowed, ServiceError::OperationNotPossible, out);
         }
 
+        if tag == ApduTag::GeneralBlockTransfer {
+            return self.handle_gbt(apdu, out);
+        }
+        // A request that is not a GBT block abandons a GBT transfer in either direction:
+        // the client has moved on, and holding the old one would answer a later
+        // acknowledgement with a block of something it no longer wants.
+        if matches!(self.transfer, Transfer::GbtSending { .. } | Transfer::GbtReceiving { .. }) {
+            self.transfer = Transfer::Idle;
+        }
+
         // Unprotect into a scratch that is not the one used for building the reply.
         let mut plain_buf = [0u8; N];
-        // Anything that goes wrong removing protection is a `deciphering-error`, which
-        // is the code the standard has for it. Returning a transport-level `Err` instead
-        // makes the caller invent an answer, and the two cases it invented for — a
-        // plaintext APDU arriving in a ciphered association, and a replayed counter —
-        // are the two a client most needs told about by name.
         let plain = match self.unprotect_into(apdu, &mut plain_buf) {
             Ok(p) => p,
-            Err(e) if e.kind == ErrorKind::Replay => {
-                // A replay is not a forgery: the frame really was sent under the real
-                // key, and the commonest cause is a peer that restarted from a stale
-                // counter rather than an attacker. The standard has a code for it that
-                // carries the value expected next, so the peer can resynchronise
-                // deliberately instead of guessing upwards — and a client that treats it
-                // as an ordinary deciphering error will retry the same frame forever.
-                let expected = self.peer_replay.expected_next();
-                return self.counter_exception(expected, out);
-            }
-            Err(e) => {
-                let service = if matches!(e.kind, ErrorKind::BufferTooSmall { .. }) {
-                    ServiceError::PduTooLong
-                } else {
-                    ServiceError::DecipheringError
-                };
-                return self.exception(StateError::ServiceNotAllowed, service, out);
-            }
+            Err(e) => return self.unprotect_failed(&e, out),
         };
+        self.dispatch(plain, out)
+    }
+
+    /// Answer a failure to remove protection with the code the standard has for it.
+    ///
+    /// Anything that goes wrong removing protection is a `deciphering-error`. Returning a
+    /// transport-level `Err` instead makes the caller invent an answer, and the two cases
+    /// it invented for — a plaintext APDU arriving in a ciphered association, and a
+    /// replayed counter — are the two a client most needs told about by name.
+    fn unprotect_failed(&mut self, e: &Error, out: &mut [u8]) -> Result<usize> {
+        if e.kind == ErrorKind::Replay {
+            // A replay is not a forgery: the frame really was sent under the real key, and
+            // the commonest cause is a peer that restarted from a stale counter. The code
+            // for it carries the value expected next, so the peer can resynchronise
+            // deliberately instead of guessing upwards.
+            let expected = self.peer_replay.expected_next();
+            return self.counter_exception(expected, out);
+        }
+        let service = if matches!(e.kind, ErrorKind::BufferTooSmall { .. }) {
+            ServiceError::PduTooLong
+        } else {
+            ServiceError::DecipheringError
+        };
+        self.exception(StateError::ServiceNotAllowed, service, out)
+    }
+
+    /// Serve one plain request — however it arrived, whole or reassembled from GBT.
+    ///
+    /// There is one of these on purpose: access rights are checked inside the handlers it
+    /// calls, so a request that came in blocks cannot reach an object by a path a single
+    /// APDU could not.
+    fn dispatch(&mut self, plain: &[u8], out: &mut [u8]) -> Result<usize> {
         let Ok(decoded) = Apdu::from_bytes(plain) else {
             return self.exception(StateError::ServiceUnknown, ServiceError::ServiceNotSupported, out);
         };
@@ -465,6 +516,148 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
             }
             _ => self.exception(StateError::ServiceUnknown, ServiceError::ServiceNotSupported, out),
         }
+    }
+
+    /// One `general-block-transfer` APDU from the client: an acknowledgement of blocks
+    /// this server is sending, or a block of a request it is sending.
+    ///
+    /// Returns `Ok(0)` when there is nothing to send — a streamed block the client owes
+    /// no answer to yet.
+    fn handle_gbt(&mut self, apdu: &[u8], out: &mut [u8]) -> Result<usize> {
+        if self.state != ServerState::Associated {
+            return self.exception(StateError::ServiceNotAllowed, ServiceError::OperationNotPossible, out);
+        }
+        if self.negotiated.require(Conformance::GENERAL_BLOCK_TRANSFER).is_err() {
+            return self.exception(StateError::ServiceUnknown, ServiceError::ServiceNotSupported, out);
+        }
+        let Ok(Apdu::GeneralBlockTransfer(block)) = Apdu::from_bytes(apdu) else {
+            return self.exception(StateError::ServiceUnknown, ServiceError::ServiceNotSupported, out);
+        };
+
+        // An empty block that is not the last one carries nothing but its numbers: it is
+        // an acknowledgement. (An APDU is never empty, so its only block never is.)
+        if block.block_data.is_empty() && !block.control.last_block() {
+            let Transfer::GbtSending { mut cursor, peer_ack } = self.transfer else {
+                return self.exception(
+                    StateError::ServiceNotAllowed,
+                    ServiceError::OperationNotPossible,
+                    out,
+                );
+            };
+            if cursor.acknowledge(block.block_number_ack, block.control.window()).is_err() {
+                // An acknowledgement of a block never sent, or one that goes backwards:
+                // the peer cannot be believed, and the transfer ends here.
+                self.transfer = Transfer::Idle;
+                return self.exception(
+                    StateError::ServiceNotAllowed,
+                    ServiceError::OperationNotPossible,
+                    out,
+                );
+            }
+            self.transfer = Transfer::GbtSending { cursor, peer_ack };
+            return Ok(self.poll_block(out)?.unwrap_or(0));
+        }
+
+        // A block of a request. Block one starts a transfer — and abandons whatever was
+        // in flight, as any new request does; anything else must continue one.
+        let mut cursor = match self.transfer {
+            Transfer::GbtReceiving { cursor } if block.block_number != 1 => cursor,
+            _ if block.block_number == 1 => GbtRecvCursor::new(self.config.gbt_window),
+            _ => {
+                self.transfer = Transfer::Idle;
+                return self.exception(
+                    StateError::ServiceNotAllowed,
+                    ServiceError::OperationNotPossible,
+                    out,
+                );
+            }
+        };
+        let Ok(action) = cursor.push(&mut self.response, &block) else {
+            // Larger than this server can hold. Refused by name, and the server is free
+            // for the next request.
+            self.transfer = Transfer::Idle;
+            return self.exception(StateError::ServiceNotAllowed, ServiceError::PduTooLong, out);
+        };
+        match action {
+            GbtAction::Await => {
+                self.transfer = Transfer::GbtReceiving { cursor };
+                Ok(0)
+            }
+            GbtAction::Acknowledge => {
+                self.transfer = Transfer::GbtReceiving { cursor };
+                let ack = GeneralBlockTransfer::ack(cursor.acknowledged(), cursor.window());
+                let mut w = SliceWriter::new(out);
+                Apdu::GeneralBlockTransfer(ack).encode(&mut w)?;
+                Ok(w.written())
+            }
+            GbtAction::Complete => {
+                self.transfer = Transfer::Idle;
+                let len = cursor.len();
+                let peer_ack = cursor.acknowledged();
+                // Protection comes off the whole request, once, with the same policy check
+                // as a single APDU: a block is never decrypted alone, and a plaintext
+                // request smuggled in blocks is refused as the downgrade it is.
+                let mut plain_buf = [0u8; N];
+                let ctx = Incoming {
+                    local: self.config.system_title,
+                    peer: self.client_system_title,
+                    auth_key: self.protector.auth_key(),
+                    policy: self.protector.policy(),
+                    plain_allowed: PLAIN_FROM_CLIENT,
+                };
+                let raw = self.response.get(..len).unwrap_or(&[]);
+                let plain =
+                    match unprotect_apdu(&self.protector, &ctx, &mut self.peer_replay, raw, &mut plain_buf) {
+                        Ok(p) => p,
+                        Err(e) => return self.unprotect_failed(&e, out),
+                    };
+                // A reassembled request may not be another block transfer.
+                if plain.first() == Some(&ApduTag::GeneralBlockTransfer.as_u8()) {
+                    return self.exception(
+                        StateError::ServiceUnknown,
+                        ServiceError::ServiceNotSupported,
+                        out,
+                    );
+                }
+                let n = self.dispatch(plain, out)?;
+                if let Transfer::GbtSending { cursor, .. } = self.transfer {
+                    self.transfer = Transfer::GbtSending { cursor, peer_ack };
+                }
+                Ok(n)
+            }
+        }
+    }
+
+    /// The next block of a reply going out as general block transfer, if the window has
+    /// room for one.
+    ///
+    /// [`Server::handle`] returns the first block of a window; a driver calls this until
+    /// it returns `None` and sends each one, which is how a whole window goes out on a
+    /// request/response link without a request per block. A server whose client
+    /// negotiated no GBT never has one.
+    ///
+    /// # Errors
+    /// When `out` is too small for a block.
+    pub fn poll_block(&mut self, out: &mut [u8]) -> Result<Option<usize>> {
+        let Transfer::GbtSending { mut cursor, peer_ack } = self.transfer else {
+            return Ok(None);
+        };
+        let Some((tag, rest)) = out.split_first_mut() else {
+            return Err(Error::new(ErrorKind::BufferTooSmall { needed: GBT_HEADER_MAX }, 0));
+        };
+        let apdu = self.response.get(..cursor.len()).unwrap_or(&[]);
+        let Some(n) = cursor.next_block(apdu, peer_ack, rest)? else {
+            return Ok(None);
+        };
+        *tag = ApduTag::GeneralBlockTransfer.as_u8();
+        self.transfer = Transfer::GbtSending { cursor, peer_ack };
+        Ok(Some(n.saturating_add(1)))
+    }
+
+    /// True while a reply is going out as general block transfer.
+    #[must_use]
+    pub const fn is_streaming(&self) -> bool {
+        matches!(self.transfer, Transfer::GbtSending { cursor, .. } if !cursor.is_sent())
     }
 
     #[allow(
@@ -765,7 +958,7 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
             return self.get_error(invoke_id, DataAccessResult::OtherReason, out);
         }
 
-        if n + NORMAL_HEADER_MAX + self.protection_overhead() <= usize::from(self.client_max_pdu_size) {
+        if self.sendable_whole(n + NORMAL_HEADER_MAX) {
             let data = Data::from_bytes_in(&value[..n])?;
             let response = GetResponse::Normal { invoke_id, result: GetDataResult::Data(data) };
             return self.send(&Apdu::GetResponse(response), out);
@@ -863,8 +1056,7 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
         let prefix_len = pw.written();
         let body_len = prefix_len.saturating_add(n);
 
-        if body_len + NORMAL_HEADER_MAX + self.protection_overhead() <= usize::from(self.client_max_pdu_size)
-        {
+        if self.sendable_whole(body_len + NORMAL_HEADER_MAX) {
             let response = GetResponse::WithList {
                 invoke_id,
                 results: crate::xdlms::List::from_raw(count, results.get(..n).unwrap_or(&[])),
@@ -1041,6 +1233,17 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
             attribute_id: descriptor.attribute_id,
             outcome,
         });
+    }
+
+    /// True when a reply of `len` plaintext bytes can go out as one APDU — directly, or,
+    /// when the client negotiated it, cut into general block transfer blocks.
+    ///
+    /// GBT carries the whole reply, so the bound for it is `N`, the buffer the reply is
+    /// built in, rather than the client's PDU size.
+    fn sendable_whole(&self, len: usize) -> bool {
+        let protected = len.saturating_add(self.protection_overhead());
+        protected <= usize::from(self.client_max_pdu_size)
+            || (self.negotiated.contains(Conformance::GENERAL_BLOCK_TRANSFER) && protected <= N)
     }
 
     /// What protection adds to an APDU under the current policy.
@@ -1646,7 +1849,7 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
         // block read back, a certificate exported — and a method that silently could not
         // answer would be worse than one that says so.
         let n = value.len();
-        if n + ACTION_HEADER_MAX + self.protection_overhead() <= usize::from(self.client_max_pdu_size) {
+        if self.sendable_whole(n + ACTION_HEADER_MAX) {
             let response = ActionResponse::Normal {
                 invoke_id,
                 response: ActionResponseWithOptionalData {
@@ -1884,8 +2087,7 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
         let prefix_len = pw.written();
         let body_len = prefix_len.saturating_add(n);
 
-        if body_len + NORMAL_HEADER_MAX + self.protection_overhead() <= usize::from(self.client_max_pdu_size)
-        {
+        if self.sendable_whole(body_len + NORMAL_HEADER_MAX) {
             let response = crate::xdlms::ReadResponse {
                 results: List::from_raw(written, results.get(..n).unwrap_or(&[])),
             };
@@ -2218,6 +2420,19 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
         apdu.encode(&mut w)?;
         let plain_len = w.written();
 
+        // Too large for the client in one APDU, and the client can take general block
+        // transfer: the whole reply goes out in blocks. Not while a service-level transfer
+        // is using the response buffer — each of its blocks is sized to fit anyway.
+        let too_large =
+            plain_len.saturating_add(self.protection_overhead()) > usize::from(self.client_max_pdu_size);
+        let buffer_free = matches!(
+            self.transfer,
+            Transfer::Idle | Transfer::GbtSending { .. } | Transfer::GbtReceiving { .. }
+        );
+        if too_large && buffer_free && self.negotiated.contains(Conformance::GENERAL_BLOCK_TRANSFER) {
+            return self.send_gbt(plain_len, out);
+        }
+
         if self.config.security.is_none() {
             self.check_fits(plain_len)?;
             let mut w = SliceWriter::new(out);
@@ -2236,6 +2451,42 @@ impl<S: ObjectStore, P: CryptoProvider, const N: usize> Server<S, P, N> {
         let n = protect_apdu(&self.protector, &ctx, plain, out)?;
         self.check_fits(n)?;
         Ok(n)
+    }
+
+    /// Protect the plain reply in `scratch[..plain_len]` as one APDU into the response
+    /// buffer, and send its first block.
+    ///
+    /// Protection is applied to the whole reply once, before it is cut: the GCM tag covers
+    /// all of it, and the client verifies it once, on the reassembled APDU.
+    fn send_gbt(&mut self, plain_len: usize, out: &mut [u8]) -> Result<usize> {
+        let plain = self.scratch.get(..plain_len).unwrap_or(&[]);
+        let len = if self.config.security.is_none() {
+            self.response
+                .get_mut(..plain_len)
+                .ok_or(Error::new(ErrorKind::BufferTooSmall { needed: plain_len }, 0))?
+                .copy_from_slice(plain);
+            plain_len
+        } else {
+            let ctx = Outgoing {
+                system_title: self.config.system_title.ok_or(Error::new(ErrorKind::UnexpectedMessage, 0))?,
+                invocation_counter: self.invocation_counter.next()?,
+                auth_key: self.protector.auth_key(),
+                policy: self.protector.policy(),
+                general_allowed: self.negotiated.contains(Conformance::GENERAL_PROTECTION),
+            };
+            protect_apdu(&self.protector, &ctx, plain, &mut self.response)?
+        };
+        let fragment = usize::from(self.client_max_pdu_size).saturating_sub(GBT_HEADER_MAX);
+        let cursor = GbtSendCursor::new(len, fragment, self.config.gbt_window)?;
+        // The client's acknowledgements set the pace from here; until the first one the
+        // cursor sends one block, which is all a client that has said nothing is known to
+        // take.
+        let peer_ack = match self.transfer {
+            Transfer::GbtReceiving { cursor } => cursor.acknowledged(),
+            _ => 0,
+        };
+        self.transfer = Transfer::GbtSending { cursor, peer_ack };
+        self.poll_block(out)?.ok_or(Error::new(ErrorKind::UnexpectedMessage, 0))
     }
 
     /// Refuse to emit a reply the client has said it cannot receive.

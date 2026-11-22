@@ -25,7 +25,9 @@ use dlms_cosem_kit::axdr::{Data, DateTime, Unit};
 use dlms_cosem_kit::codec::{Encode, Writer};
 use dlms_cosem_kit::cosem::{AttributeAccess, MethodAccess};
 use dlms_cosem_kit::obis::Obis;
-use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
+use dlms_cosem_kit::security::{
+    KeyRing, OsRandom, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle,
+};
 use dlms_cosem_kit::server::{AuditEvent, ObjectStore, Server, ServerConfig, StoreResult};
 use dlms_cosem_kit::transport::wrapper::{DEFAULT_PORT, StreamReassembler, Wpdu};
 use dlms_cosem_kit::xdlms::{ActionResult, DataAccessResult, SelectiveAccess};
@@ -183,7 +185,7 @@ impl Meter {
 
 /// `N` bounds the largest *value* the store can produce — which is not the PDU size, and
 /// is the limit a load profile runs into. This profile encodes to about two kilobytes.
-type Simulator = Server<Meter, RustCryptoProvider<Rng>, 8192>;
+type Simulator = Server<Meter, RustCryptoProvider<OsRandom>, 8192>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ciphered = std::env::args().any(|a| a == "--ciphered");
@@ -228,10 +230,9 @@ fn serve(stream: &mut TcpStream, ciphered: bool) -> Result<(), Box<dyn std::erro
             time: DateTime::from_civil(2026, 9, 6, 12, 0, 0, 120),
             breaker_closed: true,
         },
-        RustCryptoProvider::with_rng(
-            if ciphered { KeyRing::new(GUEK, GAK) } else { KeyRing::default() },
-            Rng,
-        ),
+        // Challenges come from the operating system: a predictable one lets a recorded
+        // high-level-security reply authenticate.
+        RustCryptoProvider::os(if ciphered { KeyRing::new(GUEK, GAK) } else { KeyRing::default() }),
     );
 
     // The wrapper may split one APDU across TCP segments and may pack two into one, so
@@ -253,25 +254,23 @@ fn serve(stream: &mut TcpStream, ciphered: bool) -> Result<(), Box<dyn std::erro
         buffered.extend_from_slice(&chunk[..n]);
 
         while let Some((wpdu, used)) = reassembler.next_pdu(&buffered)? {
-            let client_port = wpdu.header.source;
-            let reply = server.handle(wpdu.apdu, &mut out)?;
-            let mut framed = Vec::new();
-            Wpdu::new(wpdu.header.destination, client_port, &out[..reply])?.encode(&mut framed)?;
-            stream.write_all(&framed)?;
+            let (from, to) = (wpdu.header.destination, wpdu.header.source);
+            // One request can be answered by several APDUs: a reply too large for the
+            // client goes out as general block transfer, and `poll_block` hands over the
+            // rest of each window. Zero means a streamed block needed no answer.
+            let mut reply = server.handle(wpdu.apdu, &mut out)?;
             buffered.drain(..used);
+            loop {
+                if reply > 0 {
+                    let mut framed = Vec::new();
+                    Wpdu::new(from, to, &out[..reply])?.encode(&mut framed)?;
+                    stream.write_all(&framed)?;
+                }
+                match server.poll_block(&mut out)? {
+                    Some(n) => reply = n,
+                    None => break,
+                }
+            }
         }
-    }
-}
-
-/// A counter, not a generator. Fine for a simulator on a loopback address and nowhere
-/// else: a predictable challenge lets a recorded high-level-security reply authenticate.
-struct Rng;
-
-impl dlms_cosem_kit::security::RandomSource for Rng {
-    fn fill(&self, out: &mut [u8]) -> dlms_cosem_kit::codec::Result<()> {
-        for (i, b) in out.iter_mut().enumerate() {
-            *b = 0xB0u8.wrapping_add(i as u8);
-        }
-        Ok(())
     }
 }

@@ -236,7 +236,13 @@ fn a_load_profile_crosses_a_segmented_hdlc_link() {
     // A server with room for the whole profile, and a small PDU size on top of a small
     // information field — the awkward combination, not the comfortable one.
     let mut client: Client = ClientSession::new(
-        ClientConfig { max_pdu_size: 256, ..Default::default() },
+        // Service-level blocks are what this test segments; tests/gbt.rs covers GBT.
+        ClientConfig {
+            max_pdu_size: 256,
+            conformance: dlms_cosem_kit::xdlms::Conformance::CLIENT_DEFAULT
+                .difference(dlms_cosem_kit::xdlms::Conformance::GENERAL_BLOCK_TRANSFER),
+            ..Default::default()
+        },
         RustCryptoProvider::with_rng(KeyRing::default(), FixedRandom(0xA1)),
     );
     let mut server: Server<TestMeter, RustCryptoProvider<FixedRandom>, 4096> = Server::new(

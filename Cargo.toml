@@ -1,9 +1,9 @@
 [package]
 name = "dlms-cosem-kit"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
-description = "DLMS/COSEM (IEC 62056) in Rust: sans-I/O, no_std, client and server, security suites 0-2"
+description = "DLMS/COSEM (IEC 62056) in Rust: sans-I/O, no_std, client and server, general block transfer, security suites 0-2, and a blocking client driver"
 documentation = "https://docs.rs/dlms-cosem-kit"
 repository = "https://github.com/hupe1980/dlms-cosem-kit"
 license = "MIT OR Apache-2.0"
@@ -33,6 +33,9 @@ aes = { version = "0.8", default-features = false, optional = true }
 aes-gcm = { version = "0.10", default-features = false, features = ["aes"], optional = true }
 ghash = { version = "0.5", default-features = false, optional = true }
 aes-kw = { version = "0.2", default-features = false, optional = true }
+# The operating system's randomness, for HLS challenges, under `std` only. A head-end
+# with no secure source would otherwise ship whatever its author wrote instead.
+getrandom = { version = "0.3", optional = true }
 
 [dev-dependencies]
 hex-literal = "1"
@@ -43,7 +46,7 @@ hex-literal = "1"
 [features]
 default = ["std", "client", "server", "hdlc", "wrapper", "p1", "suite0", "obis-names"]
 
-std = ["alloc", "aes-gcm?/std"]
+std = ["alloc", "aes-gcm?/std", "dep:getrandom"]
 alloc = []
 
 # The two engines. Either can be left out; a head-end needs no server and meter

@@ -1,9 +1,9 @@
 //! Profile generic: selective access and typed rows.
 
+use super::SelectiveAccess;
 use crate::axdr::{Data, DateTime, Seq};
 use crate::codec::{Encode, Error, ErrorKind, Result, Writer};
 use crate::obis::Obis;
-use crate::xdlms::SelectiveAccess;
 
 /// Which capture object a range selection is measured against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

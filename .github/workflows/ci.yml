@@ -170,7 +170,7 @@ jobs:
       - name: arithmetic overflow paths may not increase
         run: |
           set -euo pipefail
-          BASELINE=20
+          BASELINE=19
           CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true \
             cargo build --release --target thumbv7em-none-eabihf \
             --no-default-features --features "client,server,hdlc,wrapper,p1,suite0,obis-names,sn"
@@ -200,7 +200,7 @@ jobs:
         # compact-array work bound (D48) was found. A decoder is microseconds per input;
         # anything near twenty seconds is a denial of service, not a slow case.
         run: |
-          for t in data apdu acse hdlc wrapper server_session notification gbt p1; do
+          for t in data apdu acse hdlc wrapper server_session client_response notification gbt p1; do
             cargo fuzz run "$t" -- -max_total_time=60 -timeout=20 -rss_limit_mb=4096
           done
 

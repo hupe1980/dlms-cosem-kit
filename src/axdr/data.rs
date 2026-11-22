@@ -691,6 +691,82 @@ pub enum DataBuf {
 
 #[cfg(feature = "alloc")]
 impl DataBuf {
+    /// The value as a signed integer, for any integer type that fits — including the
+    /// delta types and an enum's code.
+    #[must_use]
+    pub fn as_i64(&self) -> Option<i64> {
+        Some(match *self {
+            Self::Integer(v) | Self::DeltaInteger(v) => i64::from(v),
+            Self::Long(v) | Self::DeltaLong(v) => i64::from(v),
+            Self::DoubleLong(v) | Self::DeltaDoubleLong(v) => i64::from(v),
+            Self::Long64(v) => v,
+            Self::Unsigned(v) | Self::Enum(v) | Self::DeltaUnsigned(v) => i64::from(v),
+            Self::LongUnsigned(v) | Self::DeltaLongUnsigned(v) => i64::from(v),
+            Self::DoubleLongUnsigned(v) | Self::DeltaDoubleLongUnsigned(v) => i64::from(v),
+            Self::Long64Unsigned(v) => i64::try_from(v).ok()?,
+            _ => return None,
+        })
+    }
+
+    /// The value as an unsigned integer, for any integer type that holds a non-negative
+    /// value.
+    #[must_use]
+    pub fn as_u64(&self) -> Option<u64> {
+        match *self {
+            Self::Long64Unsigned(v) => Some(v),
+            _ => self.as_i64().and_then(|v| u64::try_from(v).ok()),
+        }
+    }
+
+    /// The value as a boolean.
+    #[must_use]
+    pub const fn as_bool(&self) -> Option<bool> {
+        if let Self::Boolean(b) = *self { Some(b) } else { None }
+    }
+
+    /// The bytes of an octet, visible or UTF-8 string.
+    #[must_use]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Self::OctetString(b) | Self::VisibleString(b) | Self::Utf8String(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    /// A visible or UTF-8 string, when it is valid UTF-8.
+    #[must_use]
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::VisibleString(b) | Self::Utf8String(b) => core::str::from_utf8(b).ok(),
+            _ => None,
+        }
+    }
+
+    /// The elements of an array.
+    #[must_use]
+    pub fn as_array(&self) -> Option<&[Self]> {
+        if let Self::Array(v) = self { Some(v) } else { None }
+    }
+
+    /// The fields of a structure.
+    #[must_use]
+    pub fn as_structure(&self) -> Option<&[Self]> {
+        if let Self::Structure(v) = self { Some(v) } else { None }
+    }
+
+    /// The date-time, when it is one.
+    #[must_use]
+    pub const fn as_datetime(&self) -> Option<DateTime> {
+        if let Self::DateTime(d) = *self { Some(d) } else { None }
+    }
+
+    /// An OBIS code carried as a six-byte octet string, as logical names are.
+    #[must_use]
+    pub fn as_obis(&self) -> Option<crate::obis::Obis> {
+        let bytes: [u8; 6] = self.as_bytes()?.try_into().ok()?;
+        Some(crate::obis::Obis::from_bytes(bytes))
+    }
+
     /// Copy a borrowed value into an owned one.
     ///
     /// A compact array is expanded into an array of its rows, because the compact
@@ -739,6 +815,69 @@ impl DataBuf {
     /// Decode an owned value from bytes.
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         Self::from_data(&Data::from_bytes(bytes)?)
+    }
+}
+
+/// A compact, human-readable rendering: integers as numbers, strings quoted, octet
+/// strings in hex, arrays in `[…]` and structures in `{…}`, dates and times as the
+/// standard writes them.
+///
+/// ```
+/// use dlms_cosem_kit::axdr::DataBuf;
+/// let row = DataBuf::Structure(vec![DataBuf::DoubleLongUnsigned(1_000_000), DataBuf::OctetString(vec![0xAB, 0x01])]);
+/// assert_eq!(row.to_string(), "{1000000, ab01}");
+/// ```
+#[cfg(feature = "alloc")]
+impl core::fmt::Display for DataBuf {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        fn list(
+            f: &mut core::fmt::Formatter<'_>,
+            open: &str,
+            items: &[DataBuf],
+            close: &str,
+        ) -> core::fmt::Result {
+            f.write_str(open)?;
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    f.write_str(", ")?;
+                }
+                write!(f, "{item}")?;
+            }
+            f.write_str(close)
+        }
+        match self {
+            Self::Null => f.write_str("null"),
+            Self::DontCare => f.write_str("dont-care"),
+            Self::Array(v) => list(f, "[", v, "]"),
+            Self::Structure(v) => list(f, "{", v, "}"),
+            Self::Boolean(b) => write!(f, "{b}"),
+            Self::BitString { bits, bytes } => {
+                for i in 0..*bits {
+                    let byte = bytes.get(i / 8).copied().unwrap_or(0);
+                    f.write_str(if byte & (0x80 >> (i % 8)) != 0 { "1" } else { "0" })?;
+                }
+                Ok(())
+            }
+            Self::OctetString(b) => {
+                for byte in b {
+                    write!(f, "{byte:02x}")?;
+                }
+                Ok(())
+            }
+            Self::VisibleString(b) | Self::Utf8String(b) => {
+                write!(f, "{:?}", alloc::string::String::from_utf8_lossy(b))
+            }
+            Self::Float32(v) => write!(f, "{v}"),
+            Self::Float64(v) => write!(f, "{v}"),
+            Self::DateTime(d) => write!(f, "{d}"),
+            Self::Date(d) => write!(f, "{d}"),
+            Self::Time(t) => write!(f, "{t}"),
+            Self::Bcd(v) => write!(f, "{v}"),
+            other => match other.as_i64() {
+                Some(v) => write!(f, "{v}"),
+                None => write!(f, "{}", other.as_u64().unwrap_or_default()),
+            },
+        }
     }
 }
 

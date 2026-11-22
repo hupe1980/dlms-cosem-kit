@@ -8,12 +8,16 @@
 //! wrapped on the way out and unwrapped on the way in, and the state machine refuses a
 //! response whose protection is weaker than the policy demands.
 
+#[cfg(feature = "std")]
+mod driver;
 mod notify;
 mod session;
 
+#[cfg(feature = "std")]
+pub use driver::{Client, ClientError, Transport};
 pub use notify::{NotificationListener, PushKeyLookup, ReceivedNotification, SingleMeterKeys};
 pub use session::{
-    AccessItem, AssociationStep, BlockCollector, BlockSender, ClientConfig, ClientSession, Response,
+    AccessItem, AssociationStep, BlockCollector, BlockSender, ClientConfig, ClientSession, GbtAck, Response,
     SessionState,
 };
 

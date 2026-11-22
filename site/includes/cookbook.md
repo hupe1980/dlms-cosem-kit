@@ -8,76 +8,45 @@ The recipes assume the **default features**. Two of them reach past that floor a
 the P1 reader needs `p1`, and the named OBIS constants need `obis-names`. Everything else
 works with `client`, `server` and whichever transport you are using.
 
-## Read one register over TCP
+## Read a meter over TCP
 
-The session is sans-I/O: it hands you bytes and takes bytes back. A socket is yours.
+`Client` drives the session over a transport: association, block transfer and general
+block transfer all happen inside the calls.
 
 ```rust,no_run
-use std::io::{Read, Write};
-use std::net::TcpStream;
-
-use dlms_cosem_kit::client::{AssociationStep, ClientConfig, ClientSession, Response};
-use dlms_cosem_kit::codec::Encode;
+use dlms_cosem_kit::client::{Client, ClientConfig};
+use dlms_cosem_kit::obis::Obis;
 use dlms_cosem_kit::obis::names::ACTIVE_ENERGY_IMPORT_TOTAL;
 use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
-use dlms_cosem_kit::transport::wrapper::{StreamReassembler, Wpdu};
+use dlms_cosem_kit::transport::WrapperTransport;
 use dlms_cosem_kit::xdlms::AttributeDescriptor;
 
-const CLIENT_SAP: u16 = 0x0010;
-const LOGICAL_DEVICE: u16 = 0x0001;
-
-fn exchange(sock: &mut TcpStream, apdu: &[u8], scratch: &mut Vec<u8>) -> std::io::Result<Vec<u8>> {
-    let mut out = Vec::new();
-    Wpdu::new(CLIENT_SAP, LOGICAL_DEVICE, apdu).unwrap().encode(&mut out).unwrap();
-    sock.write_all(&out)?;
-
-    let reassembler = StreamReassembler::new(2048);
-    let mut chunk = [0u8; 512];
-    loop {
-        if let Ok(Some((pdu, used))) = reassembler.next_pdu(scratch) {
-            let answer = pdu.apdu.to_vec();
-            scratch.drain(..used);
-            return Ok(answer);
-        }
-        let n = sock.read(&mut chunk)?;
-        if n == 0 {
-            return Err(std::io::ErrorKind::UnexpectedEof.into());
-        }
-        scratch.extend_from_slice(&chunk[..n]);
-    }
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut sock = TcpStream::connect("10.0.0.5:4059")?;
-    let mut session: ClientSession<_> = ClientSession::new(
-        ClientConfig { client_sap: 0x10, ..Default::default() },
-        RustCryptoProvider::new(KeyRing::default()),
-    );
+    // Wrapper ports: 0x10 is the public client, 1 the management logical device.
+    let link = WrapperTransport::connect("10.0.0.5:4059", 0x10, 0x01)?;
+    let mut meter: dlms_cosem_kit::client::Client<_, _> =
+        Client::connect(link, ClientConfig::default(), RustCryptoProvider::os(KeyRing::default()))?;
 
-    let mut request = [0u8; 1024];
-    let mut held = Vec::new();
+    println!("{}", meter.read_scaled(3, ACTIVE_ENERGY_IMPORT_TOTAL)?);
 
-    let n = session.associate_request(&mut request)?;
-    let aare = exchange(&mut sock, &request[..n], &mut held)?;
-    assert_eq!(session.handle_associate_response(&aare)?, AssociationStep::Established);
-
-    let n = session.get_request(
-        AttributeDescriptor::new(3, ACTIVE_ENERGY_IMPORT_TOTAL, 2),
-        None,
-        &mut request,
-    )?;
-    let answer = exchange(&mut sock, &request[..n], &mut held)?;
-
-    let mut scratch = [0u8; 1024];
-    if let Response::Data(value) = session.handle_response(&answer, &mut scratch)? {
-        println!("{:?} Wh", value.as_u64());
+    let profile = meter.get(AttributeDescriptor::new(7, Obis::new(1, 0, 99, 1, 0, 255), 2))?;
+    for row in profile.as_array().unwrap_or(&[]) {
+        println!("{row}");                     // {1000000, 0} — DataBuf prints readably
     }
-
-    let n = session.release_request(&mut request)?;
-    let _ = exchange(&mut sock, &request[..n], &mut held);
+    meter.release()?;
     Ok(())
 }
 ```
+
+Over HDLC — an optical probe, an RS-485 bus, a TCP-to-serial bridge — only the first line
+changes: `HdlcTransport::connect(stream, Address::client(0x10), Address::server(1, 17))?`.
+
+### Driving the session yourself
+
+For `no_std` firmware or an async runtime, use `ClientSession` directly; the driver is
+about four hundred lines over it and `examples/association.rs` runs a whole association
+with no transport at all. The rest of this cookbook shows the session-level calls, because
+they are what the driver is made of.
 
 ## Open a ciphered association with high level security
 
@@ -98,10 +67,6 @@ use dlms_cosem_kit::security::{
 # fn main() {
 # let guek = [0u8; 16];
 # let gak = [0u8; 16];
-# struct Os;
-# impl dlms_cosem_kit::security::RandomSource for Os {
-#     fn fill(&self, out: &mut [u8]) -> dlms_cosem_kit::codec::Result<()> { out.fill(1); Ok(()) }
-# }
 let session: ClientSession<_> = ClientSession::new(
     ClientConfig {
         client_sap: 0x30,                                   // management client
@@ -110,9 +75,10 @@ let session: ClientSession<_> = ClientSession::new(
         security: SecurityPolicy::authenticated_encrypted(SecuritySuite::Suite0),
         ..Default::default()
     },
-    // The provider holds the keys and needs entropy for the challenge. Wire in your
-    // platform's generator; a provider without one refuses to invent it.
-    RustCryptoProvider::with_rng(KeyRing::new(guek, gak), Os),
+    // The provider holds the keys and needs entropy for the challenge: the operating
+    // system's here; on a microcontroller, `with_rng` and the platform's TRNG. A provider
+    // without one refuses to invent it.
+    RustCryptoProvider::os(KeyRing::new(guek, gak)),
 );
 # let _ = session;
 # }
@@ -324,6 +290,13 @@ selector you do not implement is `ScopeOfAccessViolated` rather than the whole b
 
 ## Read something larger than the PDU size
 
+**With the driver, `meter.get(…)` already does this** — whichever mechanism the meter
+picks. When both ends negotiate `general-block-transfer` (the default conformance of both
+engines here), the server sends the whole reply as GBT blocks, streaming a window of them
+at a time, and the session gathers and acknowledges them inside `handle_response`: the
+caller sees `Response::Pending` or `Response::Acknowledge(ack)` until the value is whole.
+The recipe below is the *service-level* mechanism, which a meter without GBT uses.
+
 A profile buffer never fits in one APDU. The server cuts the encoded value into
 `get-response-with-datablock` fragments and the client puts them back together. The
 fragment boundaries fall wherever the server's budget ran out, which is usually in the
@@ -375,12 +348,18 @@ bookkeeping: a duplicated or reordered fragment concatenated in the wrong place 
 still *decodes*, into a reading that is simply wrong and that no error is ever attached
 to.
 
-On the server side there is nothing to do — segmentation is in the framework. What you
+On the server side there is nothing to do — segmentation is in the framework, and so is
+the choice between GBT and the service-level blocks. A driver that serves a socket sends
+what `Server::handle` returns and then every block `Server::poll_block` yields: that is
+how a streamed window goes out without a request per block. What you
 do have to choose is the `N` on `Server<Store, Provider, N>`, because it bounds the
 largest value your store can produce. `N` and the PDU size are different limits: the PDU
 size bounds one *message*, `N` bounds the whole *value* before it is cut up.
 
 ## Write something larger than the PDU size
+
+**With the driver, `meter.set(…)` and `meter.action(…)` already do this**, as GBT when
+negotiated and the service's own block form otherwise.
 
 The direction most stacks leave out. Reading a load profile needs blocks for the
 *response*; writing an activity calendar, a set of tariff scripts or a firmware image

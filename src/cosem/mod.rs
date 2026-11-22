@@ -11,6 +11,7 @@ pub mod class;
 pub mod classes;
 pub mod profile;
 pub mod registry;
+mod selective;
 #[cfg(feature = "sn")]
 pub mod sn;
 
@@ -24,5 +25,6 @@ pub use profile::{CaptureObject, EntryDescriptor, MAX_COLUMNS, ProfileBuffer, Ra
 pub use registry::{
     CLASS_COUNT, DETAILED_CLASS_COUNT, NAMED_CLASS_COUNT, attribute_name, class_name, describe, method_name,
 };
+pub use selective::SelectiveAccess;
 #[cfg(feature = "sn")]
 pub use sn::{ShortName, ShortNameTarget};

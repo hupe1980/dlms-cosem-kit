@@ -73,7 +73,8 @@ impl Conformance {
     /// about behaviour, and proposing a service the code does not implement is how a
     /// peer is invited to use one.
     pub const CLIENT_DEFAULT: Self = Self::from_bits_truncate(
-        Self::ACCESS.bits()
+        Self::GENERAL_BLOCK_TRANSFER.bits()
+            | Self::ACCESS.bits()
             | Self::GENERAL_PROTECTION.bits()
             | Self::GET.bits()
             | Self::SET.bits()
@@ -96,7 +97,8 @@ impl Conformance {
     /// negotiated block says nothing about what the server will accept and everything
     /// about what it may emit — which is the client's half of the intersection.
     pub const SERVER_DEFAULT: Self = Self::from_bits_truncate(
-        Self::GET.bits()
+        Self::GENERAL_BLOCK_TRANSFER.bits()
+            | Self::GET.bits()
             | Self::SET.bits()
             | Self::ACTION.bits()
             | Self::SELECTIVE_ACCESS.bits()

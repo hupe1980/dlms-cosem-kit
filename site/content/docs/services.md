@@ -124,7 +124,11 @@ else.
 ### General block transfer
 
 GBT is the service-independent one: it cuts an **APDU** into blocks whatever the APDU
-carries. `GbtSender` and `GbtReceiver` are the whole edition-9 procedure.
+carries — including the services that have no block form of their own, which is the whole
+reason it exists. **Both engines choose it themselves**: when the association negotiated
+`general-block-transfer`, a reply too large for the client goes out as GBT for *every*
+service — ACCESS and the list forms included — and a long request may arrive as GBT and is
+served exactly as if it had come whole.
 
 **Streaming** — the sender puts a window of blocks on the wire before it waits. A window
 of zero is not "no window": it is what a sender that is *not* streaming sends, and reading
@@ -140,9 +144,31 @@ block from beyond a gap.** Acknowledging the last in-order block is precisely wh
 the missing one; keeping the future block as well would leave a hole nothing fills, and the
 reassembled APDU would be wrong rather than absent.
 
-Neither engine chooses GBT on its own — they segment with the service-specific mechanism,
-which is what meters overwhelmingly use. A caller that needs GBT drives the two types
-directly, over any transport.
+**Protection covers the whole.** The reply is protected once, as one APDU, before it is
+cut, and the receiver removes protection once, from the reassembled APDU, with the same
+policy check as for a single one. A block is never decrypted alone, and a plaintext reply
+smuggled in blocks into a ciphered association is refused as the downgrade it is.
+
+**Who drives what.** The server's `handle` returns the first block of a window and
+`poll_block` the rest, so a request/response driver can put a whole window on the wire;
+`handle` returns zero when a streamed block owes no answer. The client session gathers the
+blocks into the caller's buffer and answers `Response::Pending` (receive again) or
+`Response::Acknowledge(ack)` (send these seven bytes) until the response is whole. The
+blocking `Client` does both. `GbtSender` and `GbtReceiver` remain for callers who drive
+the procedure by hand, and `GbtSendCursor` / `GbtRecvCursor` are the same procedure
+without a borrowed buffer, which is what the engines store.
+
+**How the window fields are read — derived.** The window field is read as the sender's own
+receive window, and a block with the streaming bit *clear* is the one the receiver
+acknowledges. The Green Book excerpt does not print these clauses; the reading rests on the
+Ed 9 procedure as implemented here and on one second implementation. It is chosen because it
+cannot deadlock whichever way a peer reads the field — and a receiver also acknowledges
+when its own window fills, so a sender that streams past it cannot overrun it. A broken
+window asks for its retry **once**: the rest of the window arriving after the gap does not
+make the sender rewind again.
+
+Without GBT, the engines segment with the service-specific mechanism above, which is what
+the installed base of meters overwhelmingly uses.
 
 ## Profile buffers
 

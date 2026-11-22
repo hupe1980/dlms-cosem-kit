@@ -13,8 +13,10 @@
 //!   because it carries the same object model, so one crate and one set of types read
 //!   both a P1 telegram and a ciphered push.
 //!
-//! None of them retransmits or times a peer out. That needs a clock, and there is none in
-//! this crate — see [`crate::client`].
+//! None of the framing modules retransmits or times a peer out. That needs a clock, and
+//! there is none in the sans-I/O core. With `std`, [`WrapperTransport`] and
+//! [`HdlcTransport`] put that framing on a socket or a serial port, with a timeout, for
+//! the [`Client`](crate::client::Client) driver.
 
 #[cfg(feature = "hdlc")]
 pub mod hdlc;
@@ -22,3 +24,12 @@ pub mod hdlc;
 pub mod p1;
 #[cfg(feature = "wrapper")]
 pub mod wrapper;
+
+#[cfg(all(feature = "std", feature = "client", any(feature = "hdlc", feature = "wrapper")))]
+mod link;
+#[cfg(all(feature = "std", feature = "client", any(feature = "hdlc", feature = "wrapper")))]
+pub use link::DEFAULT_TIMEOUT;
+#[cfg(all(feature = "std", feature = "client", feature = "hdlc"))]
+pub use link::HdlcTransport;
+#[cfg(all(feature = "std", feature = "client", feature = "wrapper"))]
+pub use link::WrapperTransport;

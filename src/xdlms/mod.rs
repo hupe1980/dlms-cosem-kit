@@ -42,7 +42,10 @@ pub use descriptor::{
     SelectiveAccess,
 };
 pub use error::{ConfirmedServiceError, ExceptionResponse, ServiceError, StateError};
-pub use gbt::{BlockControl, GBT_WINDOW_MAX, GbtAction, GbtReceiver, GbtSender, GeneralBlockTransfer};
+pub use gbt::{
+    BlockControl, GBT_WINDOW_MAX, GbtAction, GbtReceiver, GbtRecvCursor, GbtSendCursor, GbtSender,
+    GeneralBlockTransfer,
+};
 pub use initiate::{DLMS_VERSION, InitiateRequest, InitiateResponse, VAA_NAME_LN};
 pub use notify::{DataNotification, EventNotification, OptionalDateTime};
 pub use protection::{

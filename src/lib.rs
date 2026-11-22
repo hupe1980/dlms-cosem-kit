@@ -47,15 +47,9 @@ extern crate std;
 
 /// Recipes for the things people actually do with this crate.
 ///
-/// Every example here is compiled — and, where it needs no socket, run — as a doctest,
-/// so a snippet that stops compiling fails the build rather than quietly misleading
-/// somebody. That is the whole value of the page, and it is also why the module is
-/// gated: a recipe reaches for the P1 reader and the well-known OBIS names, and a
-/// doctest cannot be conditional on a feature the way a function can. Documenting a
-/// recipe that will not compile in the reader's own configuration is exactly the kind of
-/// quietly-wrong documentation the compilation is meant to prevent.
-///
-/// `docs.rs` builds with every feature, so the published documentation always has it.
+/// Every snippet is a doctest, so a recipe that stops compiling fails the build. The
+/// module needs the default features, because the recipes use them; docs.rs builds with
+/// all of them.
 #[cfg(all(
     feature = "std",
     feature = "client",
@@ -68,6 +62,11 @@ extern crate std;
 ))]
 #[doc = include_str!("../site/includes/cookbook.md")]
 pub mod cookbook {}
+
+// `std` brings the operating system's randomness for `security::OsRandom`, which lives
+// beside the provider it feeds; a `std` build without `suite0` links it unused.
+#[cfg(all(feature = "std", not(feature = "suite0")))]
+use getrandom as _;
 
 pub mod codec;
 

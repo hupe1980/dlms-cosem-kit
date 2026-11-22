@@ -67,3 +67,9 @@ name = "p1"
 path = "fuzz_targets/p1.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "client_response"
+path = "fuzz_targets/client_response.rs"
+test = false
+doc = false

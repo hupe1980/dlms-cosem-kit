@@ -286,6 +286,35 @@ impl RandomSource for () {
     }
 }
 
+/// The operating system's secure randomness (`getrandom`): what an HLS challenge must be
+/// drawn from on anything with an operating system.
+///
+/// ```
+/// use dlms_cosem_kit::security::{KeyRing, OsRandom, RustCryptoProvider};
+/// let provider = RustCryptoProvider::with_rng(KeyRing::default(), OsRandom);
+/// # let _ = provider;
+/// ```
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OsRandom;
+
+#[cfg(feature = "std")]
+impl RandomSource for OsRandom {
+    fn fill(&self, out: &mut [u8]) -> Result<()> {
+        getrandom::fill(out).map_err(|_| Error::new(ErrorKind::Unsupported, 0))
+    }
+}
+
+#[cfg(feature = "std")]
+impl RustCryptoProvider<OsRandom> {
+    /// A provider over `keys` drawing its randomness from the operating system — the
+    /// right choice for a head-end, a tool, or a simulator.
+    #[must_use]
+    pub const fn os(keys: KeyRing) -> Self {
+        Self { keys, rng: OsRandom }
+    }
+}
+
 /// A fixed byte sequence, for tests that need a *reproducible* challenge.
 ///
 /// Never use this for anything that faces a network: a predictable challenge lets a
