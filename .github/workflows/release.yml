@@ -87,7 +87,7 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO=false cargo build --release \
             --target thumbv7em-none-eabihf --no-default-features \
             --features client,server,hdlc,wrapper,p1,suite0,obis-names
-          lib=$(find target/thumbv7em-none-eabihf/release -name 'libdlms_cosem_rs*.rlib' | head -1)
+          lib=$(find target/thumbv7em-none-eabihf/release -name 'libdlms_cosem_kit*.rlib' | head -1)
           if nm "$lib" 2>/dev/null | grep -E 'core[0-9]+panicking|panic_fmt'; then
             echo "::error::a panic path is reachable from the library"
             exit 1
@@ -119,7 +119,7 @@ jobs:
     if: github.ref_type == 'tag' || inputs.dry_run == false
     environment:
       name: crates-io
-      url: https://crates.io/crates/dlms-cosem-rs
+      url: https://crates.io/crates/dlms-cosem-kit
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

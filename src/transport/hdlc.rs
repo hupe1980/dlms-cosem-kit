@@ -488,7 +488,7 @@ impl Framer {
 /// link layer carries, so the header rides in the first segment only.
 ///
 /// ```
-/// use dlms_cosem_rs::transport::hdlc::{Address, Segmenter, LLC_REQUEST};
+/// use dlms_cosem_kit::transport::hdlc::{Address, Segmenter, LLC_REQUEST};
 ///
 /// let apdu = [0xC0u8; 300];
 /// let mut lsdu = [0u8; 3 + 300];
@@ -505,7 +505,7 @@ impl Framer {
 ///     frames += 1;
 /// }
 /// assert_eq!(frames, 3, "303 bytes at 128 per frame");
-/// # Ok::<(), dlms_cosem_rs::Error>(())
+/// # Ok::<(), dlms_cosem_kit::Error>(())
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Segmenter<'a> {
@@ -730,7 +730,7 @@ pub enum Event {
 /// worth more than a retry loop that cannot time out.
 ///
 /// ```
-/// use dlms_cosem_rs::transport::hdlc::{Address, Connection, Event, Parameters, Role};
+/// use dlms_cosem_kit::transport::hdlc::{Address, Connection, Event, Parameters, Role};
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let client_addr = Address::client(0x10);
@@ -740,16 +740,16 @@ pub enum Event {
 ///
 /// let mut buf = [0u8; 128];
 /// let mut storage = [0u8; 512];
-/// let mut into = dlms_cosem_rs::transport::hdlc::Reassembler::new(&mut storage);
+/// let mut into = dlms_cosem_kit::transport::hdlc::Reassembler::new(&mut storage);
 ///
 /// // The client opens the link and the server confirms it.
 /// let n = client.connect(&mut buf)?;
-/// let (frame, _) = dlms_cosem_rs::transport::hdlc::decode_frame(&buf[..n])?;
+/// let (frame, _) = dlms_cosem_kit::transport::hdlc::decode_frame(&buf[..n])?;
 /// assert_eq!(server.handle(&frame, &mut into)?, Event::AcknowledgeRequired);
 ///
 /// let mut reply = [0u8; 128];
 /// let n = server.acknowledge(&mut reply)?;
-/// let (frame, _) = dlms_cosem_rs::transport::hdlc::decode_frame(&reply[..n])?;
+/// let (frame, _) = dlms_cosem_kit::transport::hdlc::decode_frame(&reply[..n])?;
 /// assert_eq!(client.handle(&frame, &mut into)?, Event::Connected);
 /// # Ok(())
 /// # }

@@ -18,8 +18,8 @@
 //! not. Stating the invariant the loose way makes it false for a frame a peer is entitled
 //! to send — which is how this assertion first failed.
 
-use dlms_cosem_rs::codec::Decode;
-use dlms_cosem_rs::xdlms::{GbtAction, GbtReceiver, GeneralBlockTransfer};
+use dlms_cosem_kit::codec::Decode;
+use dlms_cosem_kit::xdlms::{GbtAction, GbtReceiver, GeneralBlockTransfer};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {

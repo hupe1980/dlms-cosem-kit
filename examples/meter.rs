@@ -20,15 +20,15 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-use dlms_cosem_rs::acse::AuthMechanism;
-use dlms_cosem_rs::axdr::{Data, DateTime, Unit};
-use dlms_cosem_rs::codec::{Encode, Writer};
-use dlms_cosem_rs::cosem::{AttributeAccess, MethodAccess};
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
-use dlms_cosem_rs::server::{AuditEvent, ObjectStore, Server, ServerConfig, StoreResult};
-use dlms_cosem_rs::transport::wrapper::{DEFAULT_PORT, StreamReassembler, Wpdu};
-use dlms_cosem_rs::xdlms::{ActionResult, DataAccessResult, SelectiveAccess};
+use dlms_cosem_kit::acse::AuthMechanism;
+use dlms_cosem_kit::axdr::{Data, DateTime, Unit};
+use dlms_cosem_kit::codec::{Encode, Writer};
+use dlms_cosem_kit::cosem::{AttributeAccess, MethodAccess};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
+use dlms_cosem_kit::server::{AuditEvent, ObjectStore, Server, ServerConfig, StoreResult};
+use dlms_cosem_kit::transport::wrapper::{DEFAULT_PORT, StreamReassembler, Wpdu};
+use dlms_cosem_kit::xdlms::{ActionResult, DataAccessResult, SelectiveAccess};
 
 const GUEK: [u8; 16] =
     [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];
@@ -267,8 +267,8 @@ fn serve(stream: &mut TcpStream, ciphered: bool) -> Result<(), Box<dyn std::erro
 /// else: a predictable challenge lets a recorded high-level-security reply authenticate.
 struct Rng;
 
-impl dlms_cosem_rs::security::RandomSource for Rng {
-    fn fill(&self, out: &mut [u8]) -> dlms_cosem_rs::codec::Result<()> {
+impl dlms_cosem_kit::security::RandomSource for Rng {
+    fn fill(&self, out: &mut [u8]) -> dlms_cosem_kit::codec::Result<()> {
         for (i, b) in out.iter_mut().enumerate() {
             *b = 0xB0u8.wrapping_add(i as u8);
         }

@@ -119,8 +119,8 @@ pub const GBT_WINDOW_MAX: u8 = 0x3F;
 /// The bytes stay the caller's, as everywhere else here.
 ///
 /// ```
-/// use dlms_cosem_rs::codec::Decode;
-/// use dlms_cosem_rs::xdlms::{GbtAction, GbtReceiver, GbtSender, GeneralBlockTransfer};
+/// use dlms_cosem_kit::codec::Decode;
+/// use dlms_cosem_kit::xdlms::{GbtAction, GbtReceiver, GbtSender, GeneralBlockTransfer};
 ///
 /// let apdu = [0xC4u8; 300];                   // a get-response, too big for the link
 /// let mut sender = GbtSender::new(&apdu, 100, 4, true)?;
@@ -137,7 +137,7 @@ pub const GBT_WINDOW_MAX: u8 = 0x3F;
 ///     }
 /// }
 /// assert_eq!(receiver.apdu(), &apdu[..]);
-/// # Ok::<(), dlms_cosem_rs::Error>(())
+/// # Ok::<(), dlms_cosem_kit::Error>(())
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct GbtSender<'a> {

@@ -9,11 +9,11 @@
 //! that points outside the input it was given. Nothing here checks that the *meaning*
 //! is right — that is what the vector and association tests are for.
 
-use dlms_cosem_rs::acse::{Aare, Aarq, Rlre, Rlrq};
-use dlms_cosem_rs::axdr::{Data, DataBuf};
-use dlms_cosem_rs::codec::{Decode, ErrorKind};
-use dlms_cosem_rs::transport::{hdlc, wrapper};
-use dlms_cosem_rs::xdlms::Apdu;
+use dlms_cosem_kit::acse::{Aare, Aarq, Rlre, Rlrq};
+use dlms_cosem_kit::axdr::{Data, DataBuf};
+use dlms_cosem_kit::codec::{Decode, ErrorKind};
+use dlms_cosem_kit::transport::{hdlc, wrapper};
+use dlms_cosem_kit::xdlms::Apdu;
 
 /// A deterministic generator. A fuzzer needs entropy; a regression test needs the same
 /// bytes every time, and this gives both by being seeded.
@@ -58,7 +58,7 @@ fn decoders() -> Vec<Decoder> {
         // until it is iterated — which is exactly where a length lie lands.
         #[cfg(feature = "sn")]
         ("read-request", |b| {
-            if let Ok(r) = dlms_cosem_rs::xdlms::ReadRequest::from_bytes(b) {
+            if let Ok(r) = dlms_cosem_kit::xdlms::ReadRequest::from_bytes(b) {
                 for entry in r.specification.iter() {
                     let _ = entry.map(|e| e.name());
                 }
@@ -66,9 +66,9 @@ fn decoders() -> Vec<Decoder> {
         }),
         #[cfg(feature = "sn")]
         ("read-response", |b| {
-            if let Ok(r) = dlms_cosem_rs::xdlms::ReadResponse::from_bytes(b) {
+            if let Ok(r) = dlms_cosem_kit::xdlms::ReadResponse::from_bytes(b) {
                 for result in r.results.iter() {
-                    if let Ok(dlms_cosem_rs::xdlms::ReadResult::Data(d)) = result {
+                    if let Ok(dlms_cosem_kit::xdlms::ReadResult::Data(d)) = result {
                         walk(&d, 0);
                     }
                 }
@@ -76,7 +76,7 @@ fn decoders() -> Vec<Decoder> {
         }),
         #[cfg(feature = "sn")]
         ("write-request", |b| {
-            if let Ok(r) = dlms_cosem_rs::xdlms::WriteRequest::from_bytes(b) {
+            if let Ok(r) = dlms_cosem_kit::xdlms::WriteRequest::from_bytes(b) {
                 assert!(
                     r.specification.as_bytes().len() <= b.len(),
                     "a list longer than the input it came from"
@@ -91,7 +91,7 @@ fn decoders() -> Vec<Decoder> {
         }),
         #[cfg(feature = "sn")]
         ("information-report", |b| {
-            if let Ok(r) = dlms_cosem_rs::xdlms::InformationReportRequest::from_bytes(b) {
+            if let Ok(r) = dlms_cosem_kit::xdlms::InformationReportRequest::from_bytes(b) {
                 for d in r.values.iter().flatten() {
                     walk(&d, 0);
                 }
@@ -492,7 +492,7 @@ fn an_hdlc_header_cannot_reach_past_its_own_frame() {
 /// The loose phrasing is false for a frame a peer is entitled to send.
 #[test]
 fn a_general_block_transfer_block_is_accepted_whole_or_not_at_all() {
-    use dlms_cosem_rs::xdlms::{BlockControl, GbtAction, GbtReceiver, GeneralBlockTransfer};
+    use dlms_cosem_kit::xdlms::{BlockControl, GbtAction, GbtReceiver, GeneralBlockTransfer};
 
     let mut rng = Rng(0x6B7_0F1E_2D3C_4B5A);
     let mut storage = [0u8; 512];
@@ -545,8 +545,8 @@ fn a_general_block_transfer_block_is_accepted_whole_or_not_at_all() {
 /// spend, while this runs on stable on every commit.
 #[test]
 fn a_block_with_an_empty_payload_advances_the_run_without_storing_anything() {
-    use dlms_cosem_rs::codec::Decode;
-    use dlms_cosem_rs::xdlms::{GbtAction, GbtReceiver, GeneralBlockTransfer};
+    use dlms_cosem_kit::codec::Decode;
+    use dlms_cosem_kit::xdlms::{GbtAction, GbtReceiver, GeneralBlockTransfer};
 
     // control 0x00, block 1, ack 0, zero-length data.
     let block = GeneralBlockTransfer::from_bytes(&[0x00, 0x00, 0x01, 0x00, 0x00, 0x00]).unwrap();

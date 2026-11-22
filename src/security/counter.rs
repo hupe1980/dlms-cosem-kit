@@ -92,7 +92,7 @@ pub const REPLAY_WIDTH_MAX: u32 = REPLAY_WINDOW_MAX - 1;
 /// is tolerated: none is, at any width.
 ///
 /// ```
-/// use dlms_cosem_rs::security::ReplayWindow;
+/// use dlms_cosem_kit::security::ReplayWindow;
 ///
 /// let mut w = ReplayWindow::new(4);
 /// assert!(w.accept(10).is_ok());

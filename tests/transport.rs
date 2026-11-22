@@ -6,16 +6,16 @@
 
 mod support;
 
-use dlms_cosem_rs::client::{AssociationStep, BlockCollector, ClientConfig, ClientSession, Response};
-use dlms_cosem_rs::codec::{Encode, SliceWriter, Writer};
-use dlms_cosem_rs::security::{FixedRandom, KeyRing, RustCryptoProvider};
-use dlms_cosem_rs::server::{Server, ServerConfig};
-use dlms_cosem_rs::transport::hdlc::{
+use dlms_cosem_kit::client::{AssociationStep, BlockCollector, ClientConfig, ClientSession, Response};
+use dlms_cosem_kit::codec::{Encode, SliceWriter, Writer};
+use dlms_cosem_kit::security::{FixedRandom, KeyRing, RustCryptoProvider};
+use dlms_cosem_kit::server::{Server, ServerConfig};
+use dlms_cosem_kit::transport::hdlc::{
     self, Address, Control, Found, Frame, Framer, LLC_REQUEST, LLC_RESPONSE, Parameters, Reassembler,
     Segmenter,
 };
-use dlms_cosem_rs::transport::wrapper::{DEFAULT_PORT, StreamReassembler, Wpdu};
-use dlms_cosem_rs::xdlms::AttributeDescriptor;
+use dlms_cosem_kit::transport::wrapper::{DEFAULT_PORT, StreamReassembler, Wpdu};
+use dlms_cosem_kit::xdlms::AttributeDescriptor;
 use support::{ENERGY, LOAD_PROFILE, PROFILE_ROWS, TestMeter};
 
 type Client = ClientSession<RustCryptoProvider<FixedRandom>>;

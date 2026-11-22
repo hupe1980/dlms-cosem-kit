@@ -14,15 +14,15 @@
 //! The same two engines, unchanged, run over TCP in `examples/meter.rs` and
 //! `examples/read.rs`.
 
-use dlms_cosem_rs::acse::AuthMechanism;
-use dlms_cosem_rs::axdr::{Data, DateTime};
-use dlms_cosem_rs::client::{AssociationStep, ClientConfig, ClientSession, Response};
-use dlms_cosem_rs::codec::{Encode, Writer};
-use dlms_cosem_rs::cosem::{AttributeAccess, MethodAccess};
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
-use dlms_cosem_rs::server::{AuditEvent, ObjectStore, Server, ServerConfig, StoreResult};
-use dlms_cosem_rs::xdlms::{
+use dlms_cosem_kit::acse::AuthMechanism;
+use dlms_cosem_kit::axdr::{Data, DateTime};
+use dlms_cosem_kit::client::{AssociationStep, ClientConfig, ClientSession, Response};
+use dlms_cosem_kit::codec::{Encode, Writer};
+use dlms_cosem_kit::cosem::{AttributeAccess, MethodAccess};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
+use dlms_cosem_kit::server::{AuditEvent, ObjectStore, Server, ServerConfig, StoreResult};
+use dlms_cosem_kit::xdlms::{
     ActionResult, AttributeDescriptor, DataAccessResult, MethodDescriptor, SelectiveAccess,
 };
 
@@ -283,8 +283,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// generator.
 struct Rng;
 
-impl dlms_cosem_rs::security::RandomSource for Rng {
-    fn fill(&self, out: &mut [u8]) -> dlms_cosem_rs::codec::Result<()> {
+impl dlms_cosem_kit::security::RandomSource for Rng {
+    fn fill(&self, out: &mut [u8]) -> dlms_cosem_kit::codec::Result<()> {
         for (i, b) in out.iter_mut().enumerate() {
             *b = 0xA0u8.wrapping_add(i as u8);
         }

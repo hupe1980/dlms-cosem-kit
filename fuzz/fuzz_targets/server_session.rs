@@ -5,13 +5,13 @@
 //! *sequence* cannot: the same server sees message after message with no handshake, in
 //! any order, and must answer or refuse each without aborting.
 
-use dlms_cosem_rs::axdr::Data;
-use dlms_cosem_rs::codec::Writer;
-use dlms_cosem_rs::cosem::{AttributeAccess, MethodAccess};
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::security::{FixedRandom, KeyRing, RustCryptoProvider};
-use dlms_cosem_rs::server::{ObjectStore, Server, ServerConfig, StoreResult};
-use dlms_cosem_rs::xdlms::{DataAccessResult, SelectiveAccess};
+use dlms_cosem_kit::axdr::Data;
+use dlms_cosem_kit::codec::Writer;
+use dlms_cosem_kit::cosem::{AttributeAccess, MethodAccess};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::security::{FixedRandom, KeyRing, RustCryptoProvider};
+use dlms_cosem_kit::server::{ObjectStore, Server, ServerConfig, StoreResult};
+use dlms_cosem_kit::xdlms::{DataAccessResult, SelectiveAccess};
 use libfuzzer_sys::fuzz_target;
 
 struct Meter;
@@ -25,7 +25,7 @@ impl ObjectStore for Meter {
         _selective_access: Option<SelectiveAccess<'_>>,
         w: &mut dyn Writer,
     ) -> StoreResult<()> {
-        use dlms_cosem_rs::codec::Encode;
+        use dlms_cosem_kit::codec::Encode;
         Data::DoubleLongUnsigned(1).encode(w).map_err(|_| DataAccessResult::OtherReason)
     }
 

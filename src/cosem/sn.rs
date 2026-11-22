@@ -52,8 +52,8 @@ pub enum ShortNameTarget {
 /// association — and answers `ObjectStore::resolve_short_name` by scanning it.
 ///
 /// ```
-/// use dlms_cosem_rs::cosem::{ShortName, ShortNameTarget};
-/// use dlms_cosem_rs::obis::Obis;
+/// use dlms_cosem_kit::cosem::{ShortName, ShortNameTarget};
+/// use dlms_cosem_kit::obis::Obis;
 ///
 /// // A Register: three attributes at base name 0x0028, and one method — `reset` —
 /// // which its class puts at x + 0x28.

@@ -1,12 +1,12 @@
-# dlms-cosem-rs
+# dlms-cosem-kit
 
 **DLMS/COSEM (IEC 62056) in one Rust crate: sans-I/O, `no_std`, client *and* server.**
 
-[![crates.io](https://img.shields.io/crates/v/dlms-cosem-rs.svg)](https://crates.io/crates/dlms-cosem-rs)
-[![docs.rs](https://img.shields.io/docsrs/dlms-cosem-rs)](https://docs.rs/dlms-cosem-rs)
-[![license](https://img.shields.io/crates/l/dlms-cosem-rs.svg)](#license)
+[![crates.io](https://img.shields.io/crates/v/dlms-cosem-kit.svg)](https://crates.io/crates/dlms-cosem-kit)
+[![docs.rs](https://img.shields.io/docsrs/dlms-cosem-kit)](https://docs.rs/dlms-cosem-kit)
+[![license](https://img.shields.io/crates/l/dlms-cosem-kit.svg)](#license)
 
-**[Documentation and guides →](https://hupe1980.github.io/dlms-cosem-rs/)**
+**[Documentation and guides →](https://hupe1980.github.io/dlms-cosem-kit/)**
 
 The protocol a smart electricity, gas, water or heat meter speaks to the system that
 reads it — the object model, the application layer and the transports — with no sockets,
@@ -14,10 +14,10 @@ no clock and no async runtime in the core. The same code drives a head-end under
 a WASM decoder in a browser, and a meter or gateway on a Cortex-M under Embassy.
 
 ```rust
-use dlms_cosem_rs::client::{AssociationStep, ClientConfig, ClientSession, Response};
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider};
-use dlms_cosem_rs::xdlms::AttributeDescriptor;
+use dlms_cosem_kit::client::{AssociationStep, ClientConfig, ClientSession, Response};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
+use dlms_cosem_kit::xdlms::AttributeDescriptor;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let mut session: ClientSession<_> = ClientSession::new(
@@ -51,11 +51,11 @@ if let Response::Data(value) = session.handle_response(&response[..m], &mut scra
 # }
 #
 # // A one-object meter, so the example above is a test rather than a sketch.
-# use dlms_cosem_rs::axdr::Data;
-# use dlms_cosem_rs::codec::{Encode, Writer};
-# use dlms_cosem_rs::cosem::AttributeAccess;
-# use dlms_cosem_rs::server::{ObjectStore, Server, ServerConfig, StoreResult};
-# use dlms_cosem_rs::xdlms::{DataAccessResult, SelectiveAccess};
+# use dlms_cosem_kit::axdr::Data;
+# use dlms_cosem_kit::codec::{Encode, Writer};
+# use dlms_cosem_kit::cosem::AttributeAccess;
+# use dlms_cosem_kit::server::{ObjectStore, Server, ServerConfig, StoreResult};
+# use dlms_cosem_kit::xdlms::{DataAccessResult, SelectiveAccess};
 # struct OneRegister;
 # impl ObjectStore for OneRegister {
 #     fn get_attribute(&self, _c: u16, _n: Obis, _a: i8, _s: Option<SelectiveAccess<'_>>, w: &mut dyn Writer) -> StoreResult<()> {
@@ -115,8 +115,8 @@ The Austrian, Luxembourg and Dutch customer interfaces emit a ciphered
 a session:
 
 ```rust,no_run
-use dlms_cosem_rs::client::{NotificationListener, SingleMeterKeys};
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
+use dlms_cosem_kit::client::{NotificationListener, SingleMeterKeys};
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
 
 let mut listener = NotificationListener::new(
     RustCryptoProvider::new(KeyRing::default()),
@@ -199,7 +199,7 @@ mode E; gateway *routing* (the gateway PDU itself encodes and decodes); `tokio` 
 `embedded-io` adapters. HDLC does not retransmit and push has no schedule, for the same
 structural reason: both need a timer, and there is no clock in this crate.
 
-The [status page](https://hupe1980.github.io/dlms-cosem-rs/docs/status/) has the full list,
+The [status page](https://hupe1980.github.io/dlms-cosem-kit/docs/status/) has the full list,
 and what each test is actually worth.
 
 **Invocation counters must outlive the process.** Both engines start from
@@ -252,10 +252,10 @@ itself, and a simulator somebody else's stack can read is what closes it.
 
 ## Documentation
 
-- **[Guides and reference](https://hupe1980.github.io/dlms-cosem-rs/)** — getting started,
+- **[Guides and reference](https://hupe1980.github.io/dlms-cosem-kit/)** — getting started,
   the cookbook, the security model, the transports, hosting a meter, and building for a
   microcontroller.
-- **[API documentation](https://docs.rs/dlms-cosem-rs)** — generated from the same source.
+- **[API documentation](https://docs.rs/dlms-cosem-kit)** — generated from the same source.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed, and when.
 
 ## License

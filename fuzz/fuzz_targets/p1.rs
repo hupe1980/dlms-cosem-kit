@@ -8,7 +8,7 @@
 //! checksum did not verify**, because everything downstream treats a telegram as a
 //! reading.
 
-use dlms_cosem_rs::transport::p1::{Found, TelegramReader, crc16};
+use dlms_cosem_kit::transport::p1::{Found, TelegramReader, crc16};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {

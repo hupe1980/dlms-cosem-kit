@@ -148,7 +148,7 @@ jobs:
             echo "::group::features=[$feats]"
             CARGO_PROFILE_RELEASE_LTO=false cargo build --release \
               --target thumbv7em-none-eabihf --no-default-features --features "$feats"
-            lib=$(find target/thumbv7em-none-eabihf/release -name 'libdlms_cosem_rs*.rlib' | head -1)
+            lib=$(find target/thumbv7em-none-eabihf/release -name 'libdlms_cosem_kit*.rlib' | head -1)
             file "$lib" | grep -q 'ar archive' || { echo "::error::$lib is not object code; the scan would prove nothing"; exit 1; }
             if nm "$lib" 2>/dev/null | grep -E 'core[0-9]+panicking|panic_fmt'; then
               echo "::error::a panic path is reachable from the library with features [$feats]"
@@ -174,7 +174,7 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true \
             cargo build --release --target thumbv7em-none-eabihf \
             --no-default-features --features "client,server,hdlc,wrapper,p1,suite0,obis-names,sn"
-          lib=$(find target/thumbv7em-none-eabihf/release -name 'libdlms_cosem_rs*.rlib' | head -1)
+          lib=$(find target/thumbv7em-none-eabihf/release -name 'libdlms_cosem_kit*.rlib' | head -1)
           objdump=$(find "$(rustc --print sysroot)" -name llvm-objdump | head -1)
           n=$("$objdump" -dr "$lib" | grep -c 'panic_const_.*_overflow' || true)
           echo "arithmetic overflow paths: $n (baseline $BASELINE)"

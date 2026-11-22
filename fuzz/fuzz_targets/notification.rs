@@ -6,8 +6,8 @@
 //! must never accept the same invocation counter twice — and it must do both without
 //! aborting on whatever bytes turn up.
 
-use dlms_cosem_rs::client::{NotificationListener, SingleMeterKeys};
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
+use dlms_cosem_kit::client::{NotificationListener, SingleMeterKeys};
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
 use libfuzzer_sys::fuzz_target;
 
 const GUEK: [u8; 16] = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];

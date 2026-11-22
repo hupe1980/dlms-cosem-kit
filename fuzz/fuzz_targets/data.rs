@@ -5,8 +5,8 @@
 //! iterated, so a target that stops at `from_bytes` would never reach the code where a
 //! length lie actually lands. This one walks everything.
 
-use dlms_cosem_rs::axdr::Data;
-use dlms_cosem_rs::codec::Decode;
+use dlms_cosem_kit::axdr::Data;
+use dlms_cosem_kit::codec::Decode;
 use libfuzzer_sys::fuzz_target;
 
 fn walk(d: &Data<'_>, depth: usize) {
@@ -34,7 +34,7 @@ fuzz_target!(|bytes: &[u8]| {
         // Whatever decoded must re-encode, and re-encoding must not overflow the
         // length the decoder measured.
         let mut out = alloc_buf(bytes.len() * 2 + 16);
-        use dlms_cosem_rs::codec::{Encode, SliceWriter, Writer};
+        use dlms_cosem_kit::codec::{Encode, SliceWriter, Writer};
         let mut w = SliceWriter::new(&mut out);
         if d.encode(&mut w).is_ok() {
             assert_eq!(w.written(), d.encoded_len(), "encoded_len disagreed with encode");

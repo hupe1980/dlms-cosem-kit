@@ -1,8 +1,8 @@
 #![no_main]
 //! The BER decoders, which face the network before any key has been checked.
 
-use dlms_cosem_rs::acse::{Aare, Aarq, Rlre, Rlrq};
-use dlms_cosem_rs::codec::Decode;
+use dlms_cosem_kit::acse::{Aare, Aarq, Rlre, Rlrq};
+use dlms_cosem_kit::codec::Decode;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {

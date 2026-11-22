@@ -1,4 +1,4 @@
 +++
-title = "dlms-cosem-rs"
+title = "dlms-cosem-kit"
 template = "index.html"
 +++

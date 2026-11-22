@@ -7,19 +7,19 @@
 
 mod support;
 
-use dlms_cosem_rs::acse::{AssociationResult, AuthMechanism, Diagnostic, UserDiagnostic};
-use dlms_cosem_rs::axdr::Data;
-use dlms_cosem_rs::client::{
+use dlms_cosem_kit::acse::{AssociationResult, AuthMechanism, Diagnostic, UserDiagnostic};
+use dlms_cosem_kit::axdr::Data;
+use dlms_cosem_kit::client::{
     AccessItem, AssociationStep, BlockCollector, ClientConfig, ClientSession, Response, SessionState,
 };
-use dlms_cosem_rs::codec::{Decode, ErrorKind};
-use dlms_cosem_rs::codec::{Encode, Writer};
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::security::{
+use dlms_cosem_kit::codec::{Decode, ErrorKind};
+use dlms_cosem_kit::codec::{Encode, Writer};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::security::{
     FixedRandom, Key, KeyRing, RustCryptoProvider, Secret, SecurityPolicy, SecuritySuite, SystemTitle,
 };
-use dlms_cosem_rs::server::{Server, ServerConfig, ServerState};
-use dlms_cosem_rs::xdlms::{
+use dlms_cosem_kit::server::{Server, ServerConfig, ServerState};
+use dlms_cosem_kit::xdlms::{
     AccessResponseSpecification, AttributeDescriptor, AttributeDescriptorWithSelection, DataAccessResult,
     GetDataResult, MethodDescriptor,
 };
@@ -261,7 +261,7 @@ fn a_plain_association_opens_and_reads_a_register() {
     assert_eq!(server.state(), ServerState::Associated);
 
     let negotiated = client.negotiated().expect("the server answered with an InitiateResponse");
-    assert!(negotiated.negotiated_conformance.contains(dlms_cosem_rs::xdlms::Conformance::GET));
+    assert!(negotiated.negotiated_conformance.contains(dlms_cosem_kit::xdlms::Conformance::GET));
 
     let mut c = [0u8; 512];
     let mut s = [0u8; 512];
@@ -296,7 +296,7 @@ fn a_ciphered_hls_association_reads_writes_and_invokes() {
     }
 
     // Write the clock.
-    let new_time = dlms_cosem_rs::axdr::DateTime::from_civil(2026, 12, 24, 18, 30, 0, 60);
+    let new_time = dlms_cosem_kit::axdr::DateTime::from_civil(2026, 12, 24, 18, 30, 0, 60);
     let n = client
         .set_request(AttributeDescriptor::new(8, CLOCK, 2), None, Data::DateTime(new_time), &mut c)
         .unwrap();
@@ -351,7 +351,7 @@ fn a_modified_protected_request_does_not_verify() {
     let mut plain = [0u8; 512];
     match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::Exception(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::DecipheringError);
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::DecipheringError);
         }
         other => panic!("expected a deciphering error, got {other:?}"),
     }
@@ -388,7 +388,7 @@ fn a_replayed_request_is_refused_by_the_server() {
     let m = server.handle(&c[..n], &mut s).unwrap();
     match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::Exception(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::InvocationCounterError);
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::InvocationCounterError);
             assert_eq!(
                 e.expected_invocation_counter,
                 server.peer_invocation_counter().map(|c| c + 1),
@@ -425,8 +425,8 @@ fn a_replayed_response_is_refused_by_the_client() {
 /// something else.
 #[test]
 fn a_downgraded_aare_is_refused() {
-    use dlms_cosem_rs::acse::{Aare, ApplicationContext};
-    use dlms_cosem_rs::codec::{Encode, SliceWriter, Writer};
+    use dlms_cosem_kit::acse::{Aare, ApplicationContext};
+    use dlms_cosem_kit::codec::{Encode, SliceWriter, Writer};
 
     let (mut client, _server) = ciphered_pair();
     let mut c = [0u8; 512];
@@ -459,8 +459,8 @@ fn a_downgraded_aare_is_refused() {
 /// The same, for the authentication mechanism.
 #[test]
 fn an_aare_that_drops_the_authentication_mechanism_is_refused() {
-    use dlms_cosem_rs::acse::{Aare, ApplicationContext};
-    use dlms_cosem_rs::codec::{Encode, SliceWriter, Writer};
+    use dlms_cosem_kit::acse::{Aare, ApplicationContext};
+    use dlms_cosem_kit::codec::{Encode, SliceWriter, Writer};
 
     let (mut client, _server) = ciphered_pair();
     let mut c = [0u8; 512];
@@ -612,9 +612,9 @@ fn a_service_before_association_is_refused() {
     // serving it.
     let raw = [0xC0u8, 0x01, 0x81, 0x00, 0x03, 1, 0, 1, 8, 0, 255, 2, 0];
     let m = server.handle(&raw, &mut s).unwrap();
-    match dlms_cosem_rs::Apdu::from_bytes(&s[..m]).unwrap() {
-        dlms_cosem_rs::Apdu::ExceptionResponse(e) => {
-            assert_eq!(e.state_error, dlms_cosem_rs::xdlms::StateError::ServiceNotAllowed);
+    match dlms_cosem_kit::Apdu::from_bytes(&s[..m]).unwrap() {
+        dlms_cosem_kit::Apdu::ExceptionResponse(e) => {
+            assert_eq!(e.state_error, dlms_cosem_kit::xdlms::StateError::ServiceNotAllowed);
         }
         other => panic!("expected an exception, got {other:?}"),
     }
@@ -722,8 +722,8 @@ fn resetting_a_server_forgets_the_association_but_not_the_counter() {
     let n = client.get_request(AttributeDescriptor::new(3, ENERGY, 2), None, &mut c).unwrap();
     let m = server.handle(&c[..n], &mut s).unwrap();
     assert!(matches!(
-        dlms_cosem_rs::Apdu::from_bytes(&s[..m]).unwrap(),
-        dlms_cosem_rs::Apdu::ExceptionResponse(_)
+        dlms_cosem_kit::Apdu::from_bytes(&s[..m]).unwrap(),
+        dlms_cosem_kit::Apdu::ExceptionResponse(_)
     ));
 
     // And a fresh association from *another* peer works, continuing the server's own
@@ -768,10 +768,10 @@ fn a_reconnecting_client_cannot_replay_what_it_sent_before_the_gap() {
     // The recording goes back on the wire. It really was sent under the real key, so the
     // tag verifies — only the counter says it has been seen.
     let m = server.handle(&recorded, &mut s).unwrap();
-    let apdu = dlms_cosem_rs::Apdu::from_bytes(&s[..m]).unwrap();
+    let apdu = dlms_cosem_kit::Apdu::from_bytes(&s[..m]).unwrap();
     match apdu {
-        dlms_cosem_rs::Apdu::ExceptionResponse(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::InvocationCounterError);
+        dlms_cosem_kit::Apdu::ExceptionResponse(e) => {
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::InvocationCounterError);
         }
         other => panic!("a replay across a reconnection must be refused by name: {other:?}"),
     }
@@ -800,7 +800,7 @@ fn a_stale_counter_is_answered_with_the_value_to_move_to() {
     let m = server.handle(&c[..n], &mut s).expect("a refusal is a response, not an error");
     let expected = match restarted.handle_associate_response(&s[..m]).unwrap() {
         AssociationStep::Exception(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::InvocationCounterError);
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::InvocationCounterError);
             e.expected_invocation_counter.expect("and it says what to move to")
         }
         other => panic!("a stale counter must be named, not dropped: {other:?}"),
@@ -836,7 +836,7 @@ fn a_frame_claiming_the_broadcast_key_set_is_refused_on_a_unicast_association() 
     let mut plain = [0u8; 512];
     match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::Exception(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::DecipheringError);
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::DecipheringError);
         }
         other => panic!("a key-set downgrade must be refused: {other:?}"),
     }
@@ -873,11 +873,11 @@ fn as_general_ciphering(
     apdu: &[u8],
     originator: SystemTitle,
     recipient: &[u8],
-    key_info: Option<dlms_cosem_rs::xdlms::KeyInfo<'_>>,
+    key_info: Option<dlms_cosem_kit::xdlms::KeyInfo<'_>>,
     out: &mut [u8],
 ) -> usize {
-    use dlms_cosem_rs::codec::{Decode, Encode, SliceWriter};
-    use dlms_cosem_rs::xdlms::{Apdu, GeneralCiphering};
+    use dlms_cosem_kit::codec::{Decode, Encode, SliceWriter};
+    use dlms_cosem_kit::xdlms::{Apdu, GeneralCiphering};
 
     let ciphered = match Apdu::from_bytes(apdu).unwrap() {
         Apdu::Ciphered { body, .. } => body,
@@ -905,7 +905,7 @@ fn as_general_ciphering(
 /// recipient. Opening one is what lets this crate talk to a stack that prefers it.
 #[test]
 fn a_general_ciphering_frame_in_its_identified_key_form_is_opened() {
-    use dlms_cosem_rs::xdlms::KeyInfo;
+    use dlms_cosem_kit::xdlms::KeyInfo;
 
     let (mut client, mut server) = ciphered_pair();
     associate(&mut client, &mut server);
@@ -936,7 +936,7 @@ fn a_general_ciphering_frame_in_its_identified_key_form_is_opened() {
 /// at all* are still checked, and the one that decides *which key* is this end's.
 #[test]
 fn a_general_ciphering_frame_is_refused_when_its_header_says_it_is_not_ours() {
-    use dlms_cosem_rs::xdlms::KeyInfo;
+    use dlms_cosem_kit::xdlms::KeyInfo;
 
     let mut wrapped = [0u8; 512];
     let mut plain = [0u8; 512];
@@ -1024,7 +1024,7 @@ fn a_dedicated_association_refuses_a_frame_on_the_global_key_set() {
     let mut plain = [0u8; 512];
     match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::Exception(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::DecipheringError);
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::DecipheringError);
         }
         other => panic!("a key-set mismatch must be refused: {other:?}"),
     }
@@ -1037,38 +1037,38 @@ fn a_dedicated_association_refuses_a_frame_on_the_global_key_set() {
 #[derive(Debug)]
 struct NoDedicatedKey(RustCryptoProvider<FixedRandom>);
 
-impl dlms_cosem_rs::security::CryptoProvider for NoDedicatedKey {
+impl dlms_cosem_kit::security::CryptoProvider for NoDedicatedKey {
     fn aead_seal(
         &self,
-        key: dlms_cosem_rs::security::KeyRef<'_>,
+        key: dlms_cosem_kit::security::KeyRef<'_>,
         suite: SecuritySuite,
         nonce: &[u8; 12],
         aad: &[u8],
         buf: &mut [u8],
-    ) -> dlms_cosem_rs::Result<[u8; 12]> {
+    ) -> dlms_cosem_kit::Result<[u8; 12]> {
         self.0.aead_seal(key, suite, nonce, aad, buf)
     }
     fn aead_open(
         &self,
-        key: dlms_cosem_rs::security::KeyRef<'_>,
+        key: dlms_cosem_kit::security::KeyRef<'_>,
         suite: SecuritySuite,
         nonce: &[u8; 12],
         aad: &[u8],
         buf: &mut [u8],
         tag: &[u8; 12],
-    ) -> dlms_cosem_rs::Result<()> {
+    ) -> dlms_cosem_kit::Result<()> {
         self.0.aead_open(key, suite, nonce, aad, buf, tag)
     }
     fn gmac(
         &self,
-        key: dlms_cosem_rs::security::KeyRef<'_>,
+        key: dlms_cosem_kit::security::KeyRef<'_>,
         suite: SecuritySuite,
         nonce: &[u8; 12],
         aad: &[&[u8]],
-    ) -> dlms_cosem_rs::Result<[u8; 12]> {
+    ) -> dlms_cosem_kit::Result<[u8; 12]> {
         self.0.gmac(key, suite, nonce, aad)
     }
-    fn random(&self, out: &mut [u8]) -> dlms_cosem_rs::Result<()> {
+    fn random(&self, out: &mut [u8]) -> dlms_cosem_kit::Result<()> {
         self.0.random(out)
     }
     fn authentication_key(&self) -> Option<&[u8]> {
@@ -1112,7 +1112,7 @@ fn a_server_that_cannot_hold_a_dedicated_key_refuses_rather_than_half_switching(
     let m = server.handle(&c[..n], &mut s).unwrap();
     match client.handle_associate_response(&s[..m]).unwrap() {
         AssociationStep::Rejected { result, .. } => {
-            assert_eq!(result, dlms_cosem_rs::acse::AssociationResult::RejectedPermanent);
+            assert_eq!(result, dlms_cosem_kit::acse::AssociationResult::RejectedPermanent);
         }
         other => panic!("the association cannot be served and must be refused: {other:?}"),
     }
@@ -1185,7 +1185,7 @@ fn a_single_block_is_not_a_value_on_its_own() {
     };
     assert!(!last);
     // The array header claims 120 rows and the block holds a handful of them.
-    assert!(dlms_cosem_rs::axdr::Data::from_bytes_in(data).is_err());
+    assert!(dlms_cosem_kit::axdr::Data::from_bytes_in(data).is_err());
 }
 
 /// The collector refuses a fragment that is not the next one. A duplicated or reordered
@@ -1323,7 +1323,7 @@ fn a_load_profile_is_read_over_ciphered_block_transfer() {
 /// events an incident review is looking for out of the record.
 #[test]
 fn the_audit_trail_records_refusals_as_well_as_successes() {
-    use dlms_cosem_rs::server::AuditEvent;
+    use dlms_cosem_kit::server::AuditEvent;
 
     let (mut client, mut server) = lls_pair(b"12345678", b"12345678");
     assert_eq!(associate(&mut client, &mut server), AssociationStep::Established);
@@ -1373,14 +1373,14 @@ fn the_audit_trail_records_refusals_as_well_as_successes() {
         class_id: 70,
         logical_name: BREAKER,
         method_id: 1,
-        outcome: dlms_cosem_rs::xdlms::ActionResult::Success,
+        outcome: dlms_cosem_kit::xdlms::ActionResult::Success,
     }));
     assert!(
         trail.contains(&AuditEvent::MethodInvoked {
             class_id: 15,
             logical_name: CLOCK,
             method_id: 1,
-            outcome: dlms_cosem_rs::xdlms::ActionResult::ReadWriteDenied,
+            outcome: dlms_cosem_kit::xdlms::ActionResult::ReadWriteDenied,
         }),
         "a method the association may not invoke is recorded as denied, not omitted"
     );
@@ -1394,7 +1394,7 @@ fn the_audit_trail_records_refusals_as_well_as_successes() {
 /// A refused association is recorded too, with the diagnostic the client was given.
 #[test]
 fn a_refused_association_is_on_the_record() {
-    use dlms_cosem_rs::server::AuditEvent;
+    use dlms_cosem_kit::server::AuditEvent;
 
     let (mut client, mut server) = lls_pair(b"wrong-one", b"12345678");
     let mut c = [0u8; 512];
@@ -1435,7 +1435,7 @@ fn several_attributes_are_read_in_one_exchange() {
 
     let got: Vec<GetDataResult<'_>> = results.iter().map(Result::unwrap).collect();
     assert_eq!(got[0].value().unwrap().as_u64(), Some(12_345_678));
-    assert!(matches!(got[1].value().unwrap(), dlms_cosem_rs::axdr::Data::DateTime(_)));
+    assert!(matches!(got[1].value().unwrap(), dlms_cosem_kit::axdr::Data::DateTime(_)));
     assert_eq!(got[2].value().unwrap().as_obis(), Some(ENERGY), "attribute 1 is the logical name");
 }
 
@@ -1484,7 +1484,7 @@ fn one_denied_attribute_does_not_lose_the_rest_of_the_list() {
             .store()
             .trail
             .iter()
-            .filter(|e| matches!(e, dlms_cosem_rs::server::AuditEvent::AttributeRead { .. }))
+            .filter(|e| matches!(e, dlms_cosem_kit::server::AuditEvent::AttributeRead { .. }))
             .count(),
         4
     );
@@ -1550,7 +1550,7 @@ fn an_empty_list_is_refused_before_it_costs_a_round_trip() {
 /// answer a day's read with a year of data, and nothing in the exchange would say so.
 #[test]
 fn selective_access_reaches_the_store_and_narrows_the_read() {
-    use dlms_cosem_rs::cosem::EntryDescriptor;
+    use dlms_cosem_kit::cosem::EntryDescriptor;
 
     let (mut client, mut server) = small_pdu_pair();
     assert_eq!(associate(&mut client, &mut server), AssociationStep::Established);
@@ -1580,7 +1580,7 @@ fn selective_access_reaches_the_store_and_narrows_the_read() {
 /// nothing at all.
 #[test]
 fn an_open_ended_entry_range_runs_to_the_end_of_the_buffer() {
-    use dlms_cosem_rs::cosem::EntryDescriptor;
+    use dlms_cosem_kit::cosem::EntryDescriptor;
 
     let (mut client, mut server) = small_pdu_pair();
     associate(&mut client, &mut server);
@@ -1616,10 +1616,10 @@ fn an_unsupported_selector_is_refused_rather_than_ignored() {
     let mut params = [0u8; 96];
 
     // Selector 1 — a range by clock — which this meter's profile does not implement.
-    let from = dlms_cosem_rs::axdr::DateTime::from_civil(2026, 9, 1, 0, 0, 0, 120);
-    let to = dlms_cosem_rs::axdr::DateTime::from_civil(2026, 9, 2, 0, 0, 0, 120);
+    let from = dlms_cosem_kit::axdr::DateTime::from_civil(2026, 9, 1, 0, 0, 0, 120);
+    let to = dlms_cosem_kit::axdr::DateTime::from_civil(2026, 9, 2, 0, 0, 0, 120);
     let access =
-        dlms_cosem_rs::cosem::RangeDescriptor::by_clock(from, to).to_selective_access(&mut params).unwrap();
+        dlms_cosem_kit::cosem::RangeDescriptor::by_clock(from, to).to_selective_access(&mut params).unwrap();
     assert_eq!(access.selector, 1);
 
     let n = client.get_request(AttributeDescriptor::new(7, LOAD_PROFILE, 2), Some(access), &mut c).unwrap();
@@ -1678,8 +1678,8 @@ fn a_suite_two_association_reads_a_register() {
     let n = client.get_request(AttributeDescriptor::new(3, ENERGY, 2), None, &mut c).unwrap();
     let m = server.handle(&c[..n], &mut s).unwrap();
     // The security control byte names suite 2 in its low nibble.
-    let dlms_cosem_rs::Apdu::Ciphered { body, .. } =
-        dlms_cosem_rs::Apdu::from_bytes(&s[..m]).expect("the response is a ciphered service")
+    let dlms_cosem_kit::Apdu::Ciphered { body, .. } =
+        dlms_cosem_kit::Apdu::from_bytes(&s[..m]).expect("the response is a ciphered service")
     else {
         panic!("expected a ciphered response")
     };
@@ -1709,7 +1709,7 @@ fn a_ciphered_client_can_read_the_servers_refusal() {
     let m = server.handle(&c[..n], &mut s).expect("a refusal is a response, not an error");
     match client.handle_response(&s[..m], &mut plain).expect("and the client can read it") {
         Response::Exception(e) => {
-            assert_eq!(e.state_error, dlms_cosem_rs::xdlms::StateError::ServiceNotAllowed);
+            assert_eq!(e.state_error, dlms_cosem_kit::xdlms::StateError::ServiceNotAllowed);
         }
         other => panic!("expected an exception response, got {other:?}"),
     }
@@ -1719,7 +1719,7 @@ fn a_ciphered_client_can_read_the_servers_refusal() {
 fn blob(n: usize) -> Vec<u8> {
     let payload: Vec<u8> = (0..n).map(|i| (i % 251) as u8).collect();
     let mut out = vec![0u8; n + 8];
-    let mut w = dlms_cosem_rs::codec::SliceWriter::new(&mut out);
+    let mut w = dlms_cosem_kit::codec::SliceWriter::new(&mut out);
     Data::OctetString(&payload).encode(&mut w).unwrap();
     let used = w.written();
     out.truncate(used);
@@ -1848,7 +1848,7 @@ fn a_batched_write_answers_one_result_per_attribute() {
         // Not writable: the register is read-only.
         AttributeDescriptorWithSelection { descriptor: AttributeDescriptor::new(3, ENERGY, 2), access: None },
     ];
-    let new_time = dlms_cosem_rs::axdr::DateTime::from_civil(2027, 1, 2, 3, 4, 5, 60);
+    let new_time = dlms_cosem_kit::axdr::DateTime::from_civil(2027, 1, 2, 3, 4, 5, 60);
     let values = [Data::DateTime(new_time), Data::DoubleLongUnsigned(1)];
 
     let mut c = [0u8; 512];
@@ -1874,7 +1874,7 @@ fn one_access_exchange_reads_writes_and_invokes() {
     let (mut client, mut server) = plain_pair();
     assert_eq!(associate(&mut client, &mut server), AssociationStep::Established);
 
-    let new_time = dlms_cosem_rs::axdr::DateTime::from_civil(2027, 3, 4, 5, 6, 7, 60);
+    let new_time = dlms_cosem_kit::axdr::DateTime::from_civil(2027, 3, 4, 5, 6, 7, 60);
     let items = [
         AccessItem::Get { descriptor: AttributeDescriptor::new(3, ENERGY, 2), access: None },
         AccessItem::Set {
@@ -1904,7 +1904,7 @@ fn one_access_exchange_reads_writes_and_invokes() {
                 [
                     AccessResponseSpecification::Get(DataAccessResult::Success),
                     AccessResponseSpecification::Set(DataAccessResult::Success),
-                    AccessResponseSpecification::Action(dlms_cosem_rs::xdlms::ActionResult::Success),
+                    AccessResponseSpecification::Action(dlms_cosem_kit::xdlms::ActionResult::Success),
                     AccessResponseSpecification::Get(DataAccessResult::ReadWriteDenied),
                 ]
             );
@@ -1968,7 +1968,7 @@ fn a_general_ciphering_frame_from_another_system_title_is_refused() {
     let mut plain = [0u8; 512];
     match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::Exception(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::DecipheringError);
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::DecipheringError);
         }
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -2005,10 +2005,10 @@ fn an_oversized_request_is_refused_as_pdu_too_long() {
     let mut s = [0u8; 512];
     let oversized = vec![0xC0u8; 2048];
     let m = server.handle(&oversized, &mut s).unwrap();
-    let dlms_cosem_rs::Apdu::ExceptionResponse(e) = dlms_cosem_rs::Apdu::from_bytes(&s[..m]).unwrap() else {
+    let dlms_cosem_kit::Apdu::ExceptionResponse(e) = dlms_cosem_kit::Apdu::from_bytes(&s[..m]).unwrap() else {
         panic!("expected an exception response")
     };
-    assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::PduTooLong);
+    assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::PduTooLong);
 }
 
 /// A refusal names the context the client asked for. A client that proposed a ciphered
@@ -2021,11 +2021,11 @@ fn a_refusal_answers_in_the_context_that_was_proposed() {
     let mut s = [0u8; 512];
     let n = client.associate_request(&mut c).unwrap();
     let m = server.handle(&c[..n], &mut s).unwrap();
-    let aare = dlms_cosem_rs::acse::Aare::from_bytes(&s[..m]).unwrap();
+    let aare = dlms_cosem_kit::acse::Aare::from_bytes(&s[..m]).unwrap();
     assert!(!aare.is_accepted());
     assert_eq!(
         aare.application_context,
-        Some(dlms_cosem_rs::acse::ApplicationContext::LogicalNameCiphered),
+        Some(dlms_cosem_kit::acse::ApplicationContext::LogicalNameCiphered),
         "the refusal is about the association the client asked for"
     );
 }
@@ -2042,7 +2042,7 @@ fn a_selective_access_descriptor_survives_a_blocked_write() {
     let value = blob(900);
     let mut params = [0u8; 64];
     let selector =
-        dlms_cosem_rs::cosem::EntryDescriptor::entries(3, 7).to_selective_access(&mut params).unwrap();
+        dlms_cosem_kit::cosem::EntryDescriptor::entries(3, 7).to_selective_access(&mut params).unwrap();
 
     let mut c = [0u8; 512];
     let mut s = [0u8; 512];
@@ -2145,7 +2145,7 @@ fn a_refusal_is_protected_when_the_association_can_protect_it() {
             .negotiated()
             .unwrap()
             .negotiated_conformance
-            .contains(dlms_cosem_rs::xdlms::Conformance::GENERAL_PROTECTION),
+            .contains(dlms_cosem_kit::xdlms::Conformance::GENERAL_PROTECTION),
         "both defaults offer the general wrapper"
     );
 
@@ -2158,7 +2158,7 @@ fn a_refusal_is_protected_when_the_association_can_protect_it() {
 
     match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::Exception(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::PduTooLong);
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::PduTooLong);
         }
         other => panic!("expected a protected exception response, got {other:?}"),
     }
@@ -2198,7 +2198,7 @@ fn a_batch_of_methods_answers_one_outcome_per_method() {
                 Some(0),
                 "the reset returned the new register value"
             );
-            assert_eq!(got[2].result, dlms_cosem_rs::xdlms::ActionResult::ReadWriteDenied);
+            assert_eq!(got[2].result, dlms_cosem_kit::xdlms::ActionResult::ReadWriteDenied);
         }
         other => panic!("expected one outcome per method, got {other:?}"),
     }
@@ -2216,7 +2216,7 @@ fn a_batched_write_larger_than_the_pdu_size_completes_over_block_transfer() {
     let (mut client, mut server) = small_pdu_pair();
     assert_eq!(associate(&mut client, &mut server), AssociationStep::Established);
 
-    let new_time = dlms_cosem_rs::axdr::DateTime::from_civil(2027, 5, 6, 7, 8, 9, 60);
+    let new_time = dlms_cosem_kit::axdr::DateTime::from_civil(2027, 5, 6, 7, 8, 9, 60);
     let big: Vec<u8> = (0..900).map(|i| (i % 251) as u8).collect();
     let items = [
         AttributeDescriptorWithSelection { descriptor: AttributeDescriptor::new(8, CLOCK, 2), access: None },
@@ -2300,7 +2300,7 @@ fn a_store_that_reports_success_without_writing_is_refused_rather_than_malformed
     let m = server.handle(&c[..n], &mut s).unwrap();
     match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::ActionResult { result, value } => {
-            assert_eq!(result, dlms_cosem_rs::xdlms::ActionResult::OtherReason);
+            assert_eq!(result, dlms_cosem_kit::xdlms::ActionResult::OtherReason);
             assert!(value.is_none());
         }
         other => panic!("expected a refusal, got {other:?}"),
@@ -2314,7 +2314,7 @@ fn a_store_that_reports_success_without_writing_is_refused_rather_than_malformed
     match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::ActionResults(results) => {
             let got: Vec<_> = results.iter().map(|r| r.unwrap()).collect();
-            assert_eq!(got[0].result, dlms_cosem_rs::xdlms::ActionResult::OtherReason);
+            assert_eq!(got[0].result, dlms_cosem_kit::xdlms::ActionResult::OtherReason);
             assert!(got[1].result.is_success(), "and the method after it still ran");
         }
         other => panic!("expected one outcome per method, got {other:?}"),
@@ -2357,7 +2357,7 @@ fn a_client_whose_counter_went_backwards_can_resynchronise_from_the_refusal() {
 
     let expected = match client.handle_response(&s[..m], &mut plain).unwrap() {
         Response::Exception(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::InvocationCounterError);
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::InvocationCounterError);
             e.expected_invocation_counter.expect("the refusal names the value to move to")
         }
         other => panic!("expected a counter error, got {other:?}"),

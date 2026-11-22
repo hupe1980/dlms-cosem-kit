@@ -1,7 +1,7 @@
 #![no_main]
 //! Stream reassembly, which must never buffer more than it was told to.
 
-use dlms_cosem_rs::transport::wrapper::StreamReassembler;
+use dlms_cosem_kit::transport::wrapper::StreamReassembler;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {

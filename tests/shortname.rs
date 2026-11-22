@@ -10,16 +10,16 @@
 
 mod support;
 
-use dlms_cosem_rs::acse::{AuthMechanism, Referencing};
-use dlms_cosem_rs::axdr::Data;
-use dlms_cosem_rs::client::{AssociationStep, ClientConfig, ClientSession, Response};
-use dlms_cosem_rs::codec::{Decode, ErrorKind};
-use dlms_cosem_rs::cosem::{ShortName, ShortNameTarget};
-use dlms_cosem_rs::security::{
+use dlms_cosem_kit::acse::{AuthMechanism, Referencing};
+use dlms_cosem_kit::axdr::Data;
+use dlms_cosem_kit::client::{AssociationStep, ClientConfig, ClientSession, Response};
+use dlms_cosem_kit::codec::{Decode, ErrorKind};
+use dlms_cosem_kit::cosem::{ShortName, ShortNameTarget};
+use dlms_cosem_kit::security::{
     FixedRandom, KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle,
 };
-use dlms_cosem_rs::server::{AuditEvent, Server, ServerConfig};
-use dlms_cosem_rs::xdlms::{Conformance, DataAccessResult, ReadResult, VariableAccess, WriteResult};
+use dlms_cosem_kit::server::{AuditEvent, Server, ServerConfig};
+use dlms_cosem_kit::xdlms::{Conformance, DataAccessResult, ReadResult, VariableAccess, WriteResult};
 use support::{ENERGY, SHORT_NAMES, TestMeter};
 
 const GUEK: [u8; 16] = [0x11; 16];
@@ -122,7 +122,7 @@ fn a_short_name_association_opens_and_reads_a_register() {
     // The negotiated vaa-name is what tells a client which mode it got.
     assert_eq!(
         client.negotiated().unwrap().vaa_name,
-        dlms_cosem_rs::xdlms::CURRENT_ASSOCIATION_SN,
+        dlms_cosem_kit::xdlms::CURRENT_ASSOCIATION_SN,
         "a short-name association reports the association object's base name"
     );
 
@@ -211,7 +211,7 @@ fn a_short_name_write_lands_and_a_forbidden_one_is_refused() {
     let mut plain = [0u8; 512];
 
     let clock_time = SHORT_NAMES[1].attribute(2).unwrap();
-    let new_time = dlms_cosem_rs::axdr::DateTime::from_civil(2031, 3, 4, 5, 6, 7, 60);
+    let new_time = dlms_cosem_kit::axdr::DateTime::from_civil(2031, 3, 4, 5, 6, 7, 60);
     let n = client
         .write_request(
             &[VariableAccess::VariableName(clock_time), VariableAccess::VariableName(energy_value())],
@@ -243,7 +243,7 @@ fn an_unconfirmed_write_produces_no_reply() {
     let mut s = [0u8; 512];
 
     let clock_time = SHORT_NAMES[1].attribute(2).unwrap();
-    let new_time = dlms_cosem_rs::axdr::DateTime::from_civil(2032, 1, 1, 0, 0, 0, 0);
+    let new_time = dlms_cosem_kit::axdr::DateTime::from_civil(2032, 1, 1, 0, 0, 0, 0);
     let n = client
         .unconfirmed_write_request(
             &[VariableAccess::VariableName(clock_time)],
@@ -391,9 +391,9 @@ fn a_ciphered_short_name_association_reads_a_register() {
     // The replay control is the same control.
     let replayed = c[..n].to_vec();
     let m = server.handle(&replayed, &mut s).unwrap();
-    match dlms_cosem_rs::Apdu::from_bytes(&s[..m]).unwrap() {
-        dlms_cosem_rs::Apdu::ExceptionResponse(e) => {
-            assert_eq!(e.service_error, dlms_cosem_rs::xdlms::ServiceError::InvocationCounterError);
+    match dlms_cosem_kit::Apdu::from_bytes(&s[..m]).unwrap() {
+        dlms_cosem_kit::Apdu::ExceptionResponse(e) => {
+            assert_eq!(e.service_error, dlms_cosem_kit::xdlms::ServiceError::InvocationCounterError);
         }
         other => panic!("a replay must be refused by name: {other:?}"),
     }
@@ -404,16 +404,16 @@ fn a_ciphered_short_name_association_reads_a_register() {
 fn a_name_between_two_objects_belongs_to_neither() {
     let table = SHORT_NAMES;
     // Between the register's last attribute (0x0038) and its method block (0x0050).
-    assert_eq!(dlms_cosem_rs::cosem::sn::resolve(table, 0x0040), None);
+    assert_eq!(dlms_cosem_kit::cosem::sn::resolve(table, 0x0040), None);
     // Past the clock's nine attributes.
-    assert_eq!(dlms_cosem_rs::cosem::sn::resolve(table, 0x0148), None);
+    assert_eq!(dlms_cosem_kit::cosem::sn::resolve(table, 0x0148), None);
     // The clock's methods are not addressable, because this meter did not say where they
     // start — which is the answer that keeps a guess off the wire.
     assert_eq!(table[1].method(1), None);
 
     // And an object that does resolve, resolves to the right thing.
     assert_eq!(
-        dlms_cosem_rs::cosem::sn::resolve(table, 0x0128),
+        dlms_cosem_kit::cosem::sn::resolve(table, 0x0128),
         Some(ShortNameTarget::Attribute { class_id: 8, logical_name: support::CLOCK, attribute_id: 6 })
     );
 }
@@ -426,7 +426,7 @@ fn a_name_between_two_objects_belongs_to_neither() {
 fn a_mode_this_build_can_serve_is_the_one_it_accepts() {
     let (mut client, mut server) = pair();
     assert_eq!(associate(&mut client, &mut server), AssociationStep::Established);
-    assert_eq!(server.state(), dlms_cosem_rs::server::ServerState::Associated);
+    assert_eq!(server.state(), dlms_cosem_kit::server::ServerState::Associated);
 }
 
 /// A `ShortName` built by hand agrees with the arithmetic the meter's own table uses.

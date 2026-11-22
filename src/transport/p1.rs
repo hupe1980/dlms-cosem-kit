@@ -45,7 +45,7 @@ use crate::obis::Obis;
 ///
 /// ```
 /// // The check value every published description of CRC-16/ARC quotes.
-/// assert_eq!(dlms_cosem_rs::transport::p1::crc16(b"123456789"), 0xBB3D);
+/// assert_eq!(dlms_cosem_kit::transport::p1::crc16(b"123456789"), 0xBB3D);
 /// ```
 #[must_use]
 pub fn crc16(data: &[u8]) -> u16 {
@@ -352,13 +352,13 @@ pub enum Found<'a> {
 /// rather than giving up — the same shape as [`crate::transport::hdlc::Framer`].
 ///
 /// ```
-/// use dlms_cosem_rs::transport::p1::{Found, TelegramReader};
-/// use dlms_cosem_rs::obis::Obis;
+/// use dlms_cosem_kit::transport::p1::{Found, TelegramReader};
+/// use dlms_cosem_kit::obis::Obis;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let body = "/XMX5LGBBFG10\r\n\r\n1-0:1.8.1(000123.456*kWh)\r\n!";
 /// let mut stream = String::from(body);
-/// stream.push_str(&format!("{:04X}\r\n", dlms_cosem_rs::transport::p1::crc16(body.as_bytes())));
+/// stream.push_str(&format!("{:04X}\r\n", dlms_cosem_kit::transport::p1::crc16(body.as_bytes())));
 ///
 /// let mut reader = TelegramReader::new();
 /// let Found::Telegram { telegram, .. } = reader.next_telegram(stream.as_bytes())? else {

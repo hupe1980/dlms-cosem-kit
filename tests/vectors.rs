@@ -16,8 +16,8 @@
 //! hexadecimal, and the field values the report states for it. Where the report's prose
 //! and its bytes disagree, the bytes win and the disagreement is noted.
 
-use dlms_cosem_rs::codec::{Decode, Encode, SliceWriter, Writer};
-use dlms_cosem_rs::xdlms::{ApduTag, Conformance, InitiateRequest, InitiateResponse, VAA_NAME_LN};
+use dlms_cosem_kit::codec::{Decode, Encode, SliceWriter, Writer};
+use dlms_cosem_kit::xdlms::{ApduTag, Conformance, InitiateRequest, InitiateResponse, VAA_NAME_LN};
 use hex_literal::hex;
 
 /// Encode `apdu` behind its tag and compare with what the report printed.
@@ -59,7 +59,7 @@ fn initiate_request_logical_name() {
     };
     assert_encodes_to(ApduTag::InitiateRequest, &request, &expected);
 
-    let mut r = dlms_cosem_rs::codec::Reader::new(&expected);
+    let mut r = dlms_cosem_kit::codec::Reader::new(&expected);
     assert_eq!(r.u8().unwrap(), ApduTag::InitiateRequest.as_u8());
     let back = InitiateRequest::decode(&mut r).unwrap();
     assert_eq!(back, request);
@@ -122,7 +122,7 @@ fn initiate_response_logical_name() {
     };
     assert_encodes_to(ApduTag::InitiateResponse, &response, &expected);
 
-    let mut r = dlms_cosem_rs::codec::Reader::new(&expected);
+    let mut r = dlms_cosem_kit::codec::Reader::new(&expected);
     assert_eq!(r.u8().unwrap(), ApduTag::InitiateResponse.as_u8());
     let back = InitiateResponse::decode(&mut r).unwrap();
     assert_eq!(back, response);

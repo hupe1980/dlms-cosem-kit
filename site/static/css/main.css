@@ -1,4 +1,4 @@
-/* dlms_cosem_rs — one stylesheet, no framework, no web fonts, no JavaScript.
+/* dlms_cosem_kit — one stylesheet, no framework, no web fonts, no JavaScript.
  *
  * The palette is defined once on :root and redefined once under a dark media query.
  * Nothing below that block names a colour literally, so the two themes cannot drift. */

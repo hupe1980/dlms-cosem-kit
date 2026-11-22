@@ -23,15 +23,15 @@
 //! the one in `robustness.rs`, so a failure reproduces from the seed alone and the
 //! `no_std` core gains no dependency.
 
-use dlms_cosem_rs::acse::{
+use dlms_cosem_kit::acse::{
     Aare, Aarq, ApplicationContext, AssociationResult, AuthMechanism, Diagnostic, ReleaseReason, Rlre, Rlrq,
     UserDiagnostic,
 };
-use dlms_cosem_rs::axdr::{ClockStatus, Data, DateTime};
-use dlms_cosem_rs::codec::{Decode, Encode, SliceWriter, Writer};
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::transport::hdlc::{Address, Control, Frame, decode_frame};
-use dlms_cosem_rs::xdlms::{
+use dlms_cosem_kit::axdr::{ClockStatus, Data, DateTime};
+use dlms_cosem_kit::codec::{Decode, Encode, SliceWriter, Writer};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::transport::hdlc::{Address, Control, Frame, decode_frame};
+use dlms_cosem_kit::xdlms::{
     AccessRequest, AccessRequestSpecification, AccessResponse, AccessResponseSpecification, ActionRequest,
     ActionResponse, ActionResponseWithOptionalData, ActionResult, Apdu, AttributeDescriptor,
     AttributeDescriptorWithSelection, BlockControl, Conformance, DataAccessResult, DataBlockG, DataBlockSA,
@@ -698,7 +698,7 @@ fn every_apdu_tag_reaches_its_service_through_the_top_level_decoder() {
                 return_parameters: None,
             },
         }),
-        Apdu::DataNotification(dlms_cosem_rs::xdlms::DataNotification {
+        Apdu::DataNotification(dlms_cosem_kit::xdlms::DataNotification {
             long_invoke_id: LongInvokeId::new(1),
             date_time: OptionalDateTime(None),
             body: value,

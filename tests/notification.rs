@@ -4,13 +4,13 @@
 //! correlate. The only thing that says which key opens one is the system title inside
 //! it, which is why the listener is a different object from a client session.
 
-use dlms_cosem_rs::axdr::{Data, DateTime};
-use dlms_cosem_rs::client::{NotificationListener, SingleMeterKeys};
-use dlms_cosem_rs::codec::{Encode, ErrorKind, SliceWriter, Writer};
-use dlms_cosem_rs::security::{
+use dlms_cosem_kit::axdr::{Data, DateTime};
+use dlms_cosem_kit::client::{NotificationListener, SingleMeterKeys};
+use dlms_cosem_kit::codec::{Encode, ErrorKind, SliceWriter, Writer};
+use dlms_cosem_kit::security::{
     KeyRing, Protector, ReplayWindow, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle,
 };
-use dlms_cosem_rs::xdlms::{
+use dlms_cosem_kit::xdlms::{
     Apdu, ApduTag, CipheredService, DataNotification, GeneralGloCiphering, LongInvokeId, OptionalDateTime,
 };
 
@@ -96,7 +96,7 @@ fn a_ciphered_push_is_decrypted_and_its_values_read() {
     assert_eq!(notification.invocation_counter, Some(1));
     let fields = notification.body.as_structure().expect("a structure of captured values");
     assert_eq!(fields.len(), 3);
-    assert_eq!(fields.get(0).unwrap().as_obis(), Some(dlms_cosem_rs::Obis::new(1, 0, 1, 8, 0, 255)));
+    assert_eq!(fields.get(0).unwrap().as_obis(), Some(dlms_cosem_kit::Obis::new(1, 0, 1, 8, 0, 255)));
     assert_eq!(fields.get(1).unwrap().as_u64(), Some(4_242_424));
     match fields.get(2).unwrap() {
         // 2026-09-06T07:30:00+02:00 is 05:30 UTC. The value is what Python's
@@ -329,7 +329,7 @@ fn a_ciphered_event_notification_decodes_when_the_sender_is_supplied() {
 /// the wrapper, the counter and the key — and neither can be quietly wrong on its own.
 #[test]
 fn a_sender_and_a_listener_agree_about_a_pushed_reading() {
-    use dlms_cosem_rs::server::PushSender;
+    use dlms_cosem_kit::server::PushSender;
 
     let policy = SecurityPolicy::authenticated_encrypted(SecuritySuite::Suite0);
     let mut sender: PushSender<_> = PushSender::new(
@@ -385,7 +385,7 @@ fn a_sender_and_a_listener_agree_about_a_pushed_reading() {
 /// require protection refuses it — which is the whole of D33 in two assertions.
 #[test]
 fn an_unprotected_sender_produces_a_frame_a_strict_listener_refuses() {
-    use dlms_cosem_rs::server::PushSender;
+    use dlms_cosem_kit::server::PushSender;
 
     let mut sender: PushSender<_> =
         PushSender::new(RustCryptoProvider::new(KeyRing::default()), METER, SecurityPolicy::NONE, 0);

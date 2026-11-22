@@ -103,7 +103,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dlms-cosem-rs"
+name = "dlms-cosem-kit"
 version = "0.1.0"
 dependencies = [
  "aes",

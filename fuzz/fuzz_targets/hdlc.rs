@@ -6,7 +6,7 @@
 //! where a frame begins, and the reassembler concatenates information fields across
 //! frames on the strength of one attacker-controlled bit.
 
-use dlms_cosem_rs::transport::hdlc::{Found, Framer, Parameters, Reassembler, Segmenter};
+use dlms_cosem_kit::transport::hdlc::{Found, Framer, Parameters, Reassembler, Segmenter};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {
@@ -50,8 +50,8 @@ fuzz_target!(|bytes: &[u8]| {
             let mut wire = Vec::new();
             let mut frame = [0u8; 1024];
             let mut ns = 0u8;
-            let dest = dlms_cosem_rs::transport::hdlc::Address::server(1, 17);
-            let src = dlms_cosem_rs::transport::hdlc::Address::client(0x10);
+            let dest = dlms_cosem_kit::transport::hdlc::Address::server(1, 17);
+            let src = dlms_cosem_kit::transport::hdlc::Address::client(0x10);
             while let Ok(Some(n)) = segmenter.next_frame(dest, src, ns, 0, &mut frame) {
                 wire.extend_from_slice(&frame[..n]);
                 ns = (ns + 1) % 8;

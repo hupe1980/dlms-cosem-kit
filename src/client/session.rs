@@ -1433,7 +1433,7 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
 /// deployment, not a decision for this crate.
 ///
 /// ```
-/// use dlms_cosem_rs::client::BlockCollector;
+/// use dlms_cosem_kit::client::BlockCollector;
 ///
 /// let mut storage = [0u8; 64];
 /// let mut blocks = BlockCollector::new(&mut storage);
@@ -1441,7 +1441,7 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
 /// blocks.push(2, &[0x07, 0x11, 0x09])?;   // …split mid-value
 /// let value = blocks.value()?;
 /// assert_eq!(value.as_structure().unwrap().len(), 2);
-/// # Ok::<(), dlms_cosem_rs::Error>(())
+/// # Ok::<(), dlms_cosem_kit::Error>(())
 /// ```
 #[derive(Debug)]
 pub struct BlockCollector<'a> {

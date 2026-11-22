@@ -6,12 +6,12 @@
 //! (Blue Book Part 1, "OBIS code structure").
 //!
 //! ```
-//! use dlms_cosem_rs::Obis;
+//! use dlms_cosem_kit::Obis;
 //!
 //! let total = Obis::parse("1-0:1.8.0*255").unwrap();
 //! assert_eq!(total, Obis::new(1, 0, 1, 8, 0, 255));
 //! assert_eq!(total.medium(), obis_medium());
-//! # fn obis_medium() -> dlms_cosem_rs::obis::Medium { dlms_cosem_rs::obis::Medium::Electricity }
+//! # fn obis_medium() -> dlms_cosem_kit::obis::Medium { dlms_cosem_kit::obis::Medium::Electricity }
 //! ```
 
 use core::fmt;

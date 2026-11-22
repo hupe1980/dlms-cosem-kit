@@ -16,12 +16,12 @@ The session is sans-I/O: it hands you bytes and takes bytes back. A socket is yo
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-use dlms_cosem_rs::client::{AssociationStep, ClientConfig, ClientSession, Response};
-use dlms_cosem_rs::codec::Encode;
-use dlms_cosem_rs::obis::names::ACTIVE_ENERGY_IMPORT_TOTAL;
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider};
-use dlms_cosem_rs::transport::wrapper::{StreamReassembler, Wpdu};
-use dlms_cosem_rs::xdlms::AttributeDescriptor;
+use dlms_cosem_kit::client::{AssociationStep, ClientConfig, ClientSession, Response};
+use dlms_cosem_kit::codec::Encode;
+use dlms_cosem_kit::obis::names::ACTIVE_ENERGY_IMPORT_TOTAL;
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
+use dlms_cosem_kit::transport::wrapper::{StreamReassembler, Wpdu};
+use dlms_cosem_kit::xdlms::AttributeDescriptor;
 
 const CLIENT_SAP: u16 = 0x0010;
 const LOGICAL_DEVICE: u16 = 0x0001;
@@ -89,9 +89,9 @@ configuration to fall out of step with it, and a provider backed by a secure ele
 holds them somewhere the application core never sees.
 
 ```rust
-use dlms_cosem_rs::acse::AuthMechanism;
-use dlms_cosem_rs::client::{ClientConfig, ClientSession};
-use dlms_cosem_rs::security::{
+use dlms_cosem_kit::acse::AuthMechanism;
+use dlms_cosem_kit::client::{ClientConfig, ClientSession};
+use dlms_cosem_kit::security::{
     KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle,
 };
 
@@ -99,8 +99,8 @@ use dlms_cosem_rs::security::{
 # let guek = [0u8; 16];
 # let gak = [0u8; 16];
 # struct Os;
-# impl dlms_cosem_rs::security::RandomSource for Os {
-#     fn fill(&self, out: &mut [u8]) -> dlms_cosem_rs::codec::Result<()> { out.fill(1); Ok(()) }
+# impl dlms_cosem_kit::security::RandomSource for Os {
+#     fn fill(&self, out: &mut [u8]) -> dlms_cosem_kit::codec::Result<()> { out.fill(1); Ok(()) }
 # }
 let session: ClientSession<_> = ClientSession::new(
     ClientConfig {
@@ -200,11 +200,11 @@ is the whole cost. `get-request-with-list` asks for all of them at once and answ
 one result per attribute, in order.
 
 ```rust,no_run
-use dlms_cosem_rs::client::Response;
-use dlms_cosem_rs::xdlms::{AttributeDescriptor, AttributeDescriptorWithSelection};
-# use dlms_cosem_rs::client::{ClientConfig, ClientSession};
-# use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider};
-# use dlms_cosem_rs::obis::Obis;
+use dlms_cosem_kit::client::Response;
+use dlms_cosem_kit::xdlms::{AttributeDescriptor, AttributeDescriptorWithSelection};
+# use dlms_cosem_kit::client::{ClientConfig, ClientSession};
+# use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
+# use dlms_cosem_kit::obis::Obis;
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let mut session: ClientSession<_> = ClientSession::new(
 #     ClientConfig::default(), RustCryptoProvider::new(KeyRing::default()));
@@ -247,12 +247,12 @@ what a battery-powered device on a low-power network wants: there the cost is ro
 trips, not bytes.
 
 ```rust,no_run
-use dlms_cosem_rs::client::{AccessItem, Response};
-use dlms_cosem_rs::axdr::Data;
-use dlms_cosem_rs::xdlms::{AttributeDescriptor, MethodDescriptor};
-# use dlms_cosem_rs::client::{ClientConfig, ClientSession};
-# use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider};
-# use dlms_cosem_rs::obis::Obis;
+use dlms_cosem_kit::client::{AccessItem, Response};
+use dlms_cosem_kit::axdr::Data;
+use dlms_cosem_kit::xdlms::{AttributeDescriptor, MethodDescriptor};
+# use dlms_cosem_kit::client::{ClientConfig, ClientSession};
+# use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
+# use dlms_cosem_kit::obis::Obis;
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let mut session: ClientSession<_> = ClientSession::new(
 #     ClientConfig::default(), RustCryptoProvider::new(KeyRing::default()));
@@ -296,8 +296,8 @@ day and fetching a year. Two selectors are defined: by a range of the sort value
 (usually the clock), and by entry position.
 
 ```rust
-use dlms_cosem_rs::cosem::{EntryDescriptor, RangeDescriptor};
-use dlms_cosem_rs::axdr::DateTime;
+use dlms_cosem_kit::cosem::{EntryDescriptor, RangeDescriptor};
+use dlms_cosem_kit::axdr::DateTime;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 // By position: entries 3 to 7 inclusive. Zero as the end means "to the end of the
@@ -331,11 +331,11 @@ middle of a length prefix, so **no single block is a decodable value** — only 
 concatenation is.
 
 ```rust,no_run
-use dlms_cosem_rs::client::{BlockCollector, Response};
-# use dlms_cosem_rs::client::{ClientConfig, ClientSession};
-# use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider};
-# use dlms_cosem_rs::xdlms::AttributeDescriptor;
-# use dlms_cosem_rs::obis::Obis;
+use dlms_cosem_kit::client::{BlockCollector, Response};
+# use dlms_cosem_kit::client::{ClientConfig, ClientSession};
+# use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
+# use dlms_cosem_kit::xdlms::AttributeDescriptor;
+# use dlms_cosem_kit::obis::Obis;
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let mut session: ClientSession<_> = ClientSession::new(
 #     ClientConfig::default(), RustCryptoProvider::new(KeyRing::default()));
@@ -387,11 +387,11 @@ The direction most stacks leave out. Reading a load profile needs blocks for the
 needs them for the *request*.
 
 ```rust,no_run
-use dlms_cosem_rs::client::Response;
-use dlms_cosem_rs::xdlms::AttributeDescriptor;
-# use dlms_cosem_rs::client::{ClientConfig, ClientSession};
-# use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider};
-# use dlms_cosem_rs::obis::Obis;
+use dlms_cosem_kit::client::Response;
+use dlms_cosem_kit::xdlms::AttributeDescriptor;
+# use dlms_cosem_kit::client::{ClientConfig, ClientSession};
+# use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
+# use dlms_cosem_kit::obis::Obis;
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let mut session: ClientSession<_> = ClientSession::new(
 #     ClientConfig::default(), RustCryptoProvider::new(KeyRing::default()));
@@ -427,8 +427,8 @@ an **APDU** into blocks, whatever service the APDU carries — including the one
 no blocked form of their own.
 
 ```rust
-use dlms_cosem_rs::codec::Decode;
-use dlms_cosem_rs::xdlms::{GbtAction, GbtReceiver, GbtSender, GeneralBlockTransfer};
+use dlms_cosem_kit::codec::Decode;
+use dlms_cosem_kit::xdlms::{GbtAction, GbtReceiver, GbtSender, GeneralBlockTransfer};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let apdu = [0xC4u8; 1000];
@@ -484,9 +484,9 @@ is sent by making the row shorter. The visitor sees every column of every row ei
 way. Handling that in the caller is how a load profile ends up with holes.
 
 ```rust
-use dlms_cosem_rs::axdr::Data;
-use dlms_cosem_rs::codec::Decode;
-use dlms_cosem_rs::cosem::ProfileBuffer;
+use dlms_cosem_kit::axdr::Data;
+use dlms_cosem_kit::codec::Decode;
+use dlms_cosem_kit::cosem::ProfileBuffer;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Two columns; the second row repeats the first.
@@ -519,12 +519,12 @@ control and protection. Note that `attribute_access` defaults to *nothing*: a st
 forgets it exposes nothing rather than everything.
 
 ```rust
-use dlms_cosem_rs::axdr::Data;
-use dlms_cosem_rs::codec::{Encode, Writer};
-use dlms_cosem_rs::cosem::AttributeAccess;
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::server::{ObjectStore, StoreResult};
-use dlms_cosem_rs::xdlms::{DataAccessResult, SelectiveAccess};
+use dlms_cosem_kit::axdr::Data;
+use dlms_cosem_kit::codec::{Encode, Writer};
+use dlms_cosem_kit::cosem::AttributeAccess;
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::server::{ObjectStore, StoreResult};
+use dlms_cosem_kit::xdlms::{DataAccessResult, SelectiveAccess};
 
 struct Meter {
     energy_wh: u32,
@@ -560,11 +560,11 @@ impl ObjectStore for Meter {
 every method invocation, with the outcome — **including the refusals**.
 
 ```rust
-use dlms_cosem_rs::server::AuditEvent;
-# use dlms_cosem_rs::server::{ObjectStore, StoreResult};
-# use dlms_cosem_rs::obis::Obis;
-# use dlms_cosem_rs::codec::Writer;
-# use dlms_cosem_rs::xdlms::SelectiveAccess;
+use dlms_cosem_kit::server::AuditEvent;
+# use dlms_cosem_kit::server::{ObjectStore, StoreResult};
+# use dlms_cosem_kit::obis::Obis;
+# use dlms_cosem_kit::codec::Writer;
+# use dlms_cosem_kit::xdlms::SelectiveAccess;
 # struct Meter { log: Vec<AuditEvent> }
 # impl ObjectStore for Meter {
 #     fn get_attribute(&self, _c: u16, _n: Obis, _a: i8, _s: Option<SelectiveAccess<'_>>, _w: &mut dyn Writer) -> StoreResult<()> { Ok(()) }
@@ -588,9 +588,9 @@ The listener recipe above reads a notification. This builds one, and the two are
 against each other, so neither can be quietly wrong on its own.
 
 ```rust,no_run
-use dlms_cosem_rs::axdr::{Data, DateTime};
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
-use dlms_cosem_rs::server::PushSender;
+use dlms_cosem_kit::axdr::{Data, DateTime};
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
+use dlms_cosem_kit::server::PushSender;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let guek = [0u8; 16];
@@ -660,7 +660,7 @@ each role, and producing a link that works for exactly the first eight frames wh
 drift.
 
 ```rust,no_run
-use dlms_cosem_rs::transport::hdlc::{
+use dlms_cosem_kit::transport::hdlc::{
     Address, Connection, Event, Found, Framer, Parameters, Reassembler, Role, LLC_REQUEST,
 };
 
@@ -731,7 +731,7 @@ field is 128 bytes until SNRM negotiates otherwise, so an APDU of any substance 
 split and the receiver has to put it back.
 
 ```rust,no_run
-use dlms_cosem_rs::transport::hdlc::{Address, Framer, Found, LLC_REQUEST, Reassembler, Segmenter};
+use dlms_cosem_kit::transport::hdlc::{Address, Framer, Found, LLC_REQUEST, Reassembler, Segmenter};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let apdu: &[u8] = &[];
@@ -791,8 +791,8 @@ DLMS on the wire — it is the IEC 62056-21 data readout — but it is the same 
 so the same `Obis`, `Unit` and `ScaledValue` read it.
 
 ```rust,no_run
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::transport::p1::{Found, TelegramReader};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::transport::p1::{Found, TelegramReader};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # fn read_from_serial_port(_: &mut Vec<u8>) {}
@@ -850,10 +850,10 @@ The mode belongs to the **association**, agreed once in the application context,
 configured rather than chosen per request:
 
 ```rust,ignore
-use dlms_cosem_rs::acse::Referencing;
-use dlms_cosem_rs::client::{ClientConfig, Response};
-use dlms_cosem_rs::cosem::ShortName;
-use dlms_cosem_rs::xdlms::VariableAccess;
+use dlms_cosem_kit::acse::Referencing;
+use dlms_cosem_kit::client::{ClientConfig, Response};
+use dlms_cosem_kit::cosem::ShortName;
+use dlms_cosem_kit::xdlms::VariableAccess;
 
 let config = ClientConfig { referencing: Referencing::ShortName, ..Default::default() };
 ```
@@ -890,7 +890,7 @@ translator to say what an object is. The counts are constants rather than prose,
 caller can print them and this paragraph cannot drift from the table.
 
 ```rust
-use dlms_cosem_rs::cosem::{attribute_name, class_name, method_name};
+use dlms_cosem_kit::cosem::{attribute_name, class_name, method_name};
 
 # fn main() {
 assert_eq!(class_name(7), Some("Profile generic"));
@@ -909,7 +909,7 @@ assert_eq!(attribute_name(152, 0, 2), None);
 
 ```toml
 [dependencies]
-dlms-cosem-rs = { version = "0.1", default-features = false, features = [
+dlms-cosem-kit = { version = "0.1", default-features = false, features = [
     "client", "hdlc", "suite0",
 ] }
 ```
@@ -923,7 +923,7 @@ That last claim is measured rather than asserted, and you can measure it yoursel
 ```sh
 CARGO_PROFILE_RELEASE_LTO=false cargo build --release \
   --target thumbv7em-none-eabihf --no-default-features --features client,hdlc,wrapper,suite0
-nm target/thumbv7em-none-eabihf/release/libdlms_cosem_rs.rlib | grep -E 'panicking|panic_fmt'
+nm target/thumbv7em-none-eabihf/release/libdlms_cosem_kit.rlib | grep -E 'panicking|panic_fmt'
 ```
 
 That prints nothing, and CI fails if it ever does. LTO is off because it is the only way

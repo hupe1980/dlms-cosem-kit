@@ -17,9 +17,9 @@
 //! all readable, and only the payload is not. A translator, a router or a fuzzer needs
 //! that; a stack that could not do it would make every protected capture opaque.
 
-use dlms_cosem_rs::axdr::Data;
-use dlms_cosem_rs::codec::Decode;
-use dlms_cosem_rs::xdlms::Apdu;
+use dlms_cosem_kit::axdr::Data;
+use dlms_cosem_kit::codec::Decode;
+use dlms_cosem_kit::xdlms::Apdu;
 
 /// A handful of real APDU shapes, so the example does something on its own.
 const SAMPLES: &[(&str, &str)] = &[

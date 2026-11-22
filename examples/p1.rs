@@ -23,8 +23,8 @@
 
 use std::io::Read;
 
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::transport::p1::{Found, TelegramReader, crc16};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::transport::p1::{Found, TelegramReader, crc16};
 
 /// The example telegram from the DSMR 5.0.2 companion standard, with a checksum this
 /// crate computes.

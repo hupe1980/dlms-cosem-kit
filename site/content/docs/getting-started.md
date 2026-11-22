@@ -1,12 +1,12 @@
 +++
 title = "Getting started"
-description = "Install dlms-cosem-rs, understand what sans-I/O means for your code, and read your first register from a smart meter over TCP."
+description = "Install dlms-cosem-kit, understand what sans-I/O means for your code, and read your first register from a smart meter over TCP."
 weight = 10
 +++
 
 ## What this crate is, and is not
 
-`dlms-cosem-rs` implements **DLMS/COSEM** — IEC 62056, the protocol nearly every European
+`dlms-cosem-kit` implements **DLMS/COSEM** — IEC 62056, the protocol nearly every European
 smart meter speaks. The DLMS User Association describes the standard in three steps, and
 the crate follows the same three:
 
@@ -28,7 +28,7 @@ firmware on a Cortex-M with no allocator.
 
 ```toml
 [dependencies]
-dlms-cosem-rs = "0.0"
+dlms-cosem-kit = "0.0"
 ```
 
 The default feature set is `std`, `client`, `server`, `hdlc`, `wrapper`, `p1`, `suite0`
@@ -76,10 +76,10 @@ say “wake me in three seconds”.
 ```rust,ignore
 use std::net::TcpStream;
 
-use dlms_cosem_rs::client::{AssociationStep, ClientConfig, ClientSession, Response};
-use dlms_cosem_rs::obis::names::ACTIVE_ENERGY_IMPORT_TOTAL;
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider};
-use dlms_cosem_rs::xdlms::AttributeDescriptor;
+use dlms_cosem_kit::client::{AssociationStep, ClientConfig, ClientSession, Response};
+use dlms_cosem_kit::obis::names::ACTIVE_ENERGY_IMPORT_TOTAL;
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider};
+use dlms_cosem_kit::xdlms::AttributeDescriptor;
 
 let mut sock = TcpStream::connect("10.0.0.5:4059")?;
 let mut session: ClientSession<_> = ClientSession::new(

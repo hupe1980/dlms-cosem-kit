@@ -19,14 +19,14 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-use dlms_cosem_rs::acse::AuthMechanism;
-use dlms_cosem_rs::client::{AssociationStep, BlockCollector, ClientConfig, ClientSession, Response};
-use dlms_cosem_rs::codec::Encode;
-use dlms_cosem_rs::cosem::EntryDescriptor;
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
-use dlms_cosem_rs::transport::wrapper::{DEFAULT_PORT, StreamReassembler, Wpdu};
-use dlms_cosem_rs::xdlms::{AttributeDescriptor, AttributeDescriptorWithSelection, MethodDescriptor};
+use dlms_cosem_kit::acse::AuthMechanism;
+use dlms_cosem_kit::client::{AssociationStep, BlockCollector, ClientConfig, ClientSession, Response};
+use dlms_cosem_kit::codec::Encode;
+use dlms_cosem_kit::cosem::EntryDescriptor;
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
+use dlms_cosem_kit::transport::wrapper::{DEFAULT_PORT, StreamReassembler, Wpdu};
+use dlms_cosem_kit::xdlms::{AttributeDescriptor, AttributeDescriptorWithSelection, MethodDescriptor};
 
 const GUEK: [u8; 16] =
     [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];
@@ -282,8 +282,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// See the note in `examples/meter.rs`. A counter is not a generator.
 struct Rng;
 
-impl dlms_cosem_rs::security::RandomSource for Rng {
-    fn fill(&self, out: &mut [u8]) -> dlms_cosem_rs::codec::Result<()> {
+impl dlms_cosem_kit::security::RandomSource for Rng {
+    fn fill(&self, out: &mut [u8]) -> dlms_cosem_kit::codec::Result<()> {
         for (i, b) in out.iter_mut().enumerate() {
             *b = 0xA0u8.wrapping_add(i as u8);
         }

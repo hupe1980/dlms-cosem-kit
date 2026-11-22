@@ -1,11 +1,11 @@
 [package]
-name = "dlms-cosem-rs"
+name = "dlms-cosem-kit"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 description = "DLMS/COSEM (IEC 62056) in Rust: sans-I/O, no_std, client and server, security suites 0-2"
-documentation = "https://docs.rs/dlms-cosem-rs"
-repository = "https://github.com/hupe1980/dlms-cosem-rs"
+documentation = "https://docs.rs/dlms-cosem-kit"
+repository = "https://github.com/hupe1980/dlms-cosem-kit"
 license = "MIT OR Apache-2.0"
 keywords = ["dlms", "cosem", "smart-meter", "iec62056", "obis"]
 categories = ["embedded", "encoding", "network-programming", "no-std"]

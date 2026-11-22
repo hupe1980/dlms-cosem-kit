@@ -1,8 +1,8 @@
 #![no_main]
 //! Every APDU the application layer can receive, protected ones included.
 
-use dlms_cosem_rs::codec::{Decode, Encode, SliceWriter};
-use dlms_cosem_rs::xdlms::Apdu;
+use dlms_cosem_kit::codec::{Decode, Encode, SliceWriter};
+use dlms_cosem_kit::xdlms::Apdu;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {

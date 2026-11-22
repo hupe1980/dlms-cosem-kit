@@ -1,11 +1,11 @@
 //! A meter, small enough to read and complete enough to talk to.
 
-use dlms_cosem_rs::axdr::{Data, DateTime, Unit};
-use dlms_cosem_rs::codec::{Encode, Writer};
-use dlms_cosem_rs::cosem::{AttributeAccess, MethodAccess};
-use dlms_cosem_rs::obis::Obis;
-use dlms_cosem_rs::server::{AuditEvent, ObjectStore, StoreResult};
-use dlms_cosem_rs::xdlms::{ActionResult, DataAccessResult, SelectiveAccess};
+use dlms_cosem_kit::axdr::{Data, DateTime, Unit};
+use dlms_cosem_kit::codec::{Encode, Writer};
+use dlms_cosem_kit::cosem::{AttributeAccess, MethodAccess};
+use dlms_cosem_kit::obis::Obis;
+use dlms_cosem_kit::server::{AuditEvent, ObjectStore, StoreResult};
+use dlms_cosem_kit::xdlms::{ActionResult, DataAccessResult, SelectiveAccess};
 
 pub const ENERGY: Obis = Obis::new(1, 0, 1, 8, 0, 255);
 pub const CLOCK: Obis = Obis::new(0, 0, 1, 0, 0, 255);
@@ -235,8 +235,8 @@ impl ObjectStore for TestMeter {
     /// class tables give, which a meter knows because it implements the classes. A
     /// client learns the base names by reading the `Association SN` object list.
     #[cfg(feature = "sn")]
-    fn resolve_short_name(&self, name: u16) -> Option<dlms_cosem_rs::cosem::ShortNameTarget> {
-        dlms_cosem_rs::cosem::sn::resolve(SHORT_NAMES, name)
+    fn resolve_short_name(&self, name: u16) -> Option<dlms_cosem_kit::cosem::ShortNameTarget> {
+        dlms_cosem_kit::cosem::sn::resolve(SHORT_NAMES, name)
     }
 }
 
@@ -246,15 +246,15 @@ impl ObjectStore for TestMeter {
 /// interesting failures are a name that falls between two objects and a name that lands
 /// in a method block.
 #[cfg(feature = "sn")]
-pub const SHORT_NAMES: &[dlms_cosem_rs::cosem::ShortName] = &[
+pub const SHORT_NAMES: &[dlms_cosem_kit::cosem::ShortName] = &[
     // Register, three attributes, `reset` at x + 0x28.
-    dlms_cosem_rs::cosem::ShortName::new(0x0028, 3, ENERGY, 3).with_methods(0x28, 1),
+    dlms_cosem_kit::cosem::ShortName::new(0x0028, 3, ENERGY, 3).with_methods(0x28, 1),
     // Clock, nine attributes, whose methods this meter does not expose.
-    dlms_cosem_rs::cosem::ShortName::new(0x0100, 8, CLOCK, 9),
+    dlms_cosem_kit::cosem::ShortName::new(0x0100, 8, CLOCK, 9),
     // Disconnect control: two attributes here, `remote_disconnect` at x + 0x28.
-    dlms_cosem_rs::cosem::ShortName::new(0x0200, 70, BREAKER, 2).with_methods(0x28, 2),
+    dlms_cosem_kit::cosem::ShortName::new(0x0200, 70, BREAKER, 2).with_methods(0x28, 2),
     // Profile generic, whose buffer is far larger than any PDU.
-    dlms_cosem_rs::cosem::ShortName::new(0x0300, 7, LOAD_PROFILE, 8),
+    dlms_cosem_kit::cosem::ShortName::new(0x0300, 7, LOAD_PROFILE, 8),
     // The object nobody may read, so a refusal has somewhere to come from.
-    dlms_cosem_rs::cosem::ShortName::new(0x0400, 1, SECRET_LOG, 2),
+    dlms_cosem_kit::cosem::ShortName::new(0x0400, 1, SECRET_LOG, 2),
 ];

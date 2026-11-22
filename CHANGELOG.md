@@ -55,9 +55,9 @@ First release worth using. Everything below `0.1.0` was unpublished groundwork.
 The CoAP transport; reliable (confirmed) push and push scheduling; SMS, M-Bus, mode E and
 gateway routing; the asymmetric halves of suites 1 and 2; HLS mechanisms 3, 4, 6 and 7;
 `action-request-with-list-and-first-pblock`. Each is refused by name rather than guessed
-at — see [the status page](https://hupe1980.github.io/dlms-cosem-rs/docs/status/).
+at — see [the status page](https://hupe1980.github.io/dlms-cosem-kit/docs/status/).
 
 **Interoperability has not been tested.** Almost every green test is this crate agreeing
 with itself.
 
-[0.1.0]: https://github.com/hupe1980/dlms-cosem-rs/releases/tag/v0.1.0
+[0.1.0]: https://github.com/hupe1980/dlms-cosem-kit/releases/tag/v0.1.0
