@@ -3,8 +3,8 @@
 //! [`ClientSession`] is sans-I/O and stays that way — it is what runs in firmware and under
 //! an async runtime. This is the layer a head-end or a tool wants on top of it: one call
 //! per service, with association (high-level security included), service-level block
-//! transfer and general block transfer in both directions handled inside, and owned values
-//! out.
+//! transfer and general block transfer in both directions handled inside, and either owned values
+//! or GET results borrowing caller-provided storage.
 //!
 //! ```no_run
 //! use dlms_cosem_kit::client::{Client, ClientConfig, ClientError, Transport};
@@ -28,7 +28,7 @@ use std::vec::Vec;
 
 use crate::acse::{AssociationResult, Diagnostic};
 use crate::axdr::{Data, DataBuf, ScaledValue, Unit};
-use crate::codec::{Encode, Error, ErrorKind};
+use crate::codec::{Decode, Encode, Error, ErrorKind, SliceWriter, Writer};
 use crate::obis::Obis;
 use crate::security::CryptoProvider;
 use crate::xdlms::{
@@ -119,6 +119,13 @@ pub enum ClientError {
     Refused(DataAccessResult),
     /// A method did not run.
     ActionFailed(ActionResult),
+    /// The response exceeded the configured byte budget.
+    ResponseTooLarge {
+        /// Maximum encoded result bytes for this call.
+        limit: usize,
+        /// An unfinished or unverified transfer was abandoned. Open a fresh connection.
+        reconnect_required: bool,
+    },
     /// A response of a kind the request cannot have.
     Unexpected,
 }
@@ -143,6 +150,13 @@ impl core::fmt::Display for ClientError {
             },
             Self::Refused(r) => write!(f, "refused: {r:?}"),
             Self::ActionFailed(r) => write!(f, "method failed: {r:?}"),
+            Self::ResponseTooLarge { limit, reconnect_required } => {
+                write!(f, "response exceeds the {limit}-byte budget")?;
+                if *reconnect_required {
+                    f.write_str("; reconnect before retrying")?;
+                }
+                Ok(())
+            }
             Self::Unexpected => f.write_str("a response of the wrong kind"),
         }
     }
@@ -191,16 +205,17 @@ struct Buffers {
 /// A blocking DLMS client over a [`Transport`].
 ///
 /// `N` is the session's request buffer: the largest request it builds before block
-/// transfer takes over. Responses land in a buffer of
-/// [`Client::with_response_capacity`] bytes (64 KiB by default) — the largest value a
-/// read may return, whichever block mechanism the meter uses.
+/// transfer takes over. Single-value reads accept at most 64 KiB of encoded A-XDR data
+/// by default. Set the limit with [`Client::with_response_capacity`] or supply a smaller
+/// output slice to [`Client::get_into`]. Transport framing and protection use separate
+/// workspace.
 ///
-/// Dropping a `Client` does not release the association: that is I/O, and a destructor
-/// that blocks on a socket is worse than one that does not. Call [`Client::release`].
+/// Call [`Client::release`] to release the association before dropping the client.
 pub struct Client<T, P, const N: usize = 1024> {
     session: ClientSession<P, N>,
     transport: T,
     bufs: Buffers,
+    value_limit: usize,
 }
 
 impl<T, P: CryptoProvider, const N: usize> core::fmt::Debug for Client<T, P, N> {
@@ -215,7 +230,7 @@ impl<T, P: CryptoProvider, const N: usize> core::fmt::Debug for Client<T, P, N> 
     }
 }
 
-/// The default response capacity: a day of fifteen-minute profile entries with room over.
+/// Default limit in encoded result bytes.
 const DEFAULT_RESPONSE_CAPACITY: usize = 64 * 1024;
 
 /// What the GBT block header costs around its data, worst case.
@@ -235,9 +250,10 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
         let mut client = Self {
             session: ClientSession::new(config, provider),
             transport,
+            value_limit: DEFAULT_RESPONSE_CAPACITY,
             bufs: Buffers {
                 request: vec![0; N.saturating_add(64)],
-                response: vec![0; DEFAULT_RESPONSE_CAPACITY],
+                response: vec![0; frame_len],
                 frame: vec![0; frame_len],
             },
         };
@@ -245,10 +261,22 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
         Ok(client)
     }
 
-    /// Let a single response be up to `bytes` long.
+    /// Set the maximum encoded value size for a GET, including its A-XDR type tag.
+    /// The default is 64 KiB. The limit also bounds the encoded result list for a
+    /// list GET and the encoded return value of an ACTION. A smaller caller buffer
+    /// further limits a [`get_into`](Self::get_into) call.
+    ///
+    /// The configured receive PDU determines the frame size independently of this limit.
+    /// GBT may stage up to the effective limit plus one receive frame for the
+    /// protected APDU envelope. Set transport timeouts and wire budgets separately.
     #[must_use]
     pub fn with_response_capacity(mut self, bytes: usize) -> Self {
-        self.bufs.response = vec![0; bytes];
+        self.value_limit = bytes;
+        let ceiling = bytes.saturating_add(self.bufs.frame.len());
+        if self.bufs.response.len() > ceiling {
+            self.bufs.response.truncate(ceiling);
+            self.bufs.response.shrink_to_fit();
+        }
         self
     }
 
@@ -277,10 +305,10 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
     /// Read an attribute.
     ///
     /// # Errors
-    /// [`ClientError::Refused`] with the meter's reason; any transport or protocol error.
+    /// [`ClientError::Refused`] with the meter's reason, [`ClientError::ResponseTooLarge`]
+    /// with the effective limit and recovery status, or a transport or protocol error.
     pub fn get(&mut self, attribute: AttributeDescriptor) -> Result<DataBuf, ClientError> {
-        let n = self.session.get_request(attribute, None, &mut self.bufs.request)?;
-        self.read_value(n)
+        self.get_owned(attribute, None)
     }
 
     /// Read part of an attribute — a range of a profile, by entry or by date.
@@ -292,8 +320,51 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
         attribute: AttributeDescriptor,
         access: SelectiveAccess<'_>,
     ) -> Result<DataBuf, ClientError> {
-        let n = self.session.get_request(attribute, Some(access), &mut self.bufs.request)?;
-        self.read_value(n)
+        self.get_owned(attribute, Some(access))
+    }
+
+    /// Read one attribute, optionally selected, into caller-owned storage.
+    ///
+    /// The result borrows only `out`; the client can issue another request while the
+    /// value is in use. The slice must fit the entire encoded value including its tag.
+    /// On error its contents are unspecified.
+    ///
+    /// # Errors
+    /// [`ClientError::ResponseTooLarge`] reports the effective limit. A completed,
+    /// verified response leaves the association usable. If `reconnect_required` is
+    /// true, the session is closed locally. [`ClientError::Refused`] preserves the
+    /// meter's access result.
+    pub fn get_into<'a>(
+        &mut self,
+        attribute: AttributeDescriptor,
+        access: Option<SelectiveAccess<'_>>,
+        out: &'a mut [u8],
+    ) -> Result<Data<'a>, ClientError> {
+        let limit = self.value_limit.min(out.len());
+        let mut blocks = Blocks::new(SliceWriter::new(out), limit);
+        self.read_value(
+            attribute,
+            access,
+            &mut blocks,
+            |writer, _, encoded| Ok(writer.write_bytes(encoded)?),
+            |_| Ok(()),
+        )?;
+        Ok(Data::from_bytes(blocks.bytes.finish())?)
+    }
+
+    fn get_owned(
+        &mut self,
+        attribute: AttributeDescriptor,
+        access: Option<SelectiveAccess<'_>>,
+    ) -> Result<DataBuf, ClientError> {
+        let mut blocks = Blocks::new(Vec::new(), self.value_limit);
+        self.read_value(
+            attribute,
+            access,
+            &mut blocks,
+            |_, value, _| Ok(DataBuf::from_data(&value)?),
+            |bytes| Ok(DataBuf::parse(bytes)?),
+        )
     }
 
     /// Read several attributes in one round trip, one result each.
@@ -311,39 +382,36 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
             .map(|d| AttributeDescriptorWithSelection { descriptor: *d, access: None })
             .collect();
         let n = self.session.get_request_with_list(&items, &mut self.bufs.request)?;
-        let mut blocks = Blocks::default();
-        self.run(n, |session, response, request| match response {
-            Response::DataList(results) => {
-                let mut out = Vec::new();
-                for r in results.iter() {
-                    out.push(match r?.value() {
-                        Ok(d) => Ok(DataBuf::from_data(&d)?),
-                        Err(e) => Err(e),
-                    });
+        let limit = self.value_limit;
+        let mut blocks = Blocks::new(Vec::new(), limit);
+        self.run(n, limit, |session, response, request, plain| {
+            let results = match response {
+                Response::DataList(results) if blocks.last == 0 => {
+                    // The GET tag, choice and invoke id precede the encoded list.
+                    blocks.check_size(plain.len().saturating_sub(3), true)?;
+                    results
                 }
-                Ok(Step::Done(out))
+                Response::Block { last, number, data } => {
+                    blocks.push(number, last, data)?;
+                    if !last {
+                        return Ok(Step::Send(session.get_next_block_request(number, request)?));
+                    }
+                    crate::xdlms::List::<crate::xdlms::GetDataResult<'_>>::from_bytes(&blocks.bytes)?
+                }
+                Response::DataError(e) => return Err(ClientError::Refused(e)),
+                _ => return Err(ClientError::Unexpected),
+            };
+            if results.len() != attributes.len() {
+                return Err(ClientError::Unexpected);
             }
-            Response::Block { last, number, data } => {
-                blocks.push(number, data)?;
-                if !last {
-                    return Ok(Step::Send(session.get_next_block_request(number, request)?));
-                }
-                // A blocked list response carries the encoded list, count prefix included.
-                let mut r = crate::codec::Reader::new(&blocks.bytes);
-                let count = r.length()?;
-                let mut out = Vec::with_capacity(count.min(attributes.len()));
-                for _ in 0..count {
-                    let result =
-                        <crate::xdlms::GetDataResult<'_> as crate::codec::Decode<'_>>::decode(&mut r)?;
-                    out.push(match result.value() {
-                        Ok(d) => Ok(DataBuf::from_data(&d)?),
-                        Err(e) => Err(e),
-                    });
-                }
-                Ok(Step::Done(out))
+            let mut out = Vec::with_capacity(results.len());
+            for result in results.iter() {
+                out.push(match result?.value() {
+                    Ok(d) => Ok(DataBuf::from_data(&d)?),
+                    Err(e) => Err(e),
+                });
             }
-            Response::DataError(e) => Err(ClientError::Refused(e)),
-            _ => Err(ClientError::Unexpected),
+            Ok(Step::Done(out))
         })
     }
 
@@ -386,7 +454,7 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
             Ok(_) | Err(Error { kind: ErrorKind::BufferTooSmall { .. }, .. }) => {
                 let mut sender = self.session.set_transfer(attribute, None, &encoded)?;
                 let n = self.session.next_block_request(&mut sender, &mut self.bufs.request)?;
-                return self.run(n, |session, response, request| match response {
+                return self.run(n, self.value_limit, |session, response, request, _| match response {
                     Response::BlockAccepted { .. } => {
                         Ok(Step::Send(session.next_block_request(&mut sender, request)?))
                     }
@@ -397,7 +465,7 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
             }
             Err(e) => return Err(e.into()),
         };
-        self.run(n, |_, response, _| match response {
+        self.run(n, self.value_limit, |_, response, _, _| match response {
             Response::Ok => Ok(Step::Done(())),
             Response::DataError(e) => Err(ClientError::Refused(e)),
             _ => Err(ClientError::Unexpected),
@@ -416,31 +484,40 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
         parameter: Option<&Data<'_>>,
     ) -> Result<Option<DataBuf>, ClientError> {
         let whole = self.session.action_request(method, parameter.copied(), &mut self.bufs.request);
-        let mut blocks = Blocks::default();
+        let mut blocks = Blocks::new(Vec::new(), self.value_limit);
         let n = match whole {
             Ok(n) if self.fits(n) || self.gbt() => n,
             Ok(_) | Err(Error { kind: ErrorKind::BufferTooSmall { .. }, .. }) => {
                 let encoded = encode(parameter.ok_or(ClientError::Unexpected)?)?;
                 let mut sender = self.session.action_transfer(method, &encoded)?;
                 let n = self.session.next_block_request(&mut sender, &mut self.bufs.request)?;
-                return self.run(n, |session, response, request| match response {
+                return self.run(n, self.value_limit, |session, response, request, plain| match response {
                     Response::BlockAccepted { .. } if !sender.is_done() => {
                         Ok(Step::Send(session.next_block_request(&mut sender, request)?))
                     }
-                    other => action_outcome(session, other, request, &mut blocks),
+                    other => action_outcome(session, other, request, &mut blocks, plain),
                 });
             }
             Err(e) => return Err(e.into()),
         };
-        self.run(n, |session, response, request| action_outcome(session, response, request, &mut blocks))
+        self.run(n, self.value_limit, |session, response, request, plain| {
+            action_outcome(session, response, request, &mut blocks, plain)
+        })
     }
 
     /// Release the association and close the link, handing the transport back.
+    ///
+    /// After a capacity error that requires reconnecting, this only closes the old
+    /// transport. Open a fresh connection for the next association.
     ///
     /// # Errors
     /// When the release cannot be sent. A meter that answers it with anything but a
     /// release response is still released from this end.
     pub fn release(mut self) -> Result<T, ClientError> {
+        if self.session.state() == super::SessionState::Closed {
+            self.transport.close()?;
+            return Ok(self.transport);
+        }
         let n = self.session.release_request(&mut self.bufs.request)?;
         self.transport.send(self.bufs.request.get(..n).unwrap_or(&[]))?;
         // The meter's answer is a courtesy; what matters is that this end stops.
@@ -504,15 +581,28 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
     }
 
     /// A value-returning read: whole, in service-level blocks, or over GBT.
-    fn read_value(&mut self, n: usize) -> Result<DataBuf, ClientError> {
-        let mut blocks = Blocks::default();
-        self.run(n, |session, response, request| match response {
-            Response::Data(d) => Ok(Step::Done(DataBuf::from_data(&d)?)),
+    fn read_value<W: Writer, R>(
+        &mut self,
+        attribute: AttributeDescriptor,
+        access: Option<SelectiveAccess<'_>>,
+        blocks: &mut Blocks<W>,
+        whole: impl Fn(&mut W, Data<'_>, &[u8]) -> Result<R, ClientError>,
+        reassembled: impl Fn(&W) -> Result<R, ClientError>,
+    ) -> Result<R, ClientError> {
+        let n = self.session.get_request(attribute, access, &mut self.bufs.request)?;
+        self.run(n, blocks.limit, |session, response, request, plain| match response {
+            Response::Data(value) if blocks.last == 0 => {
+                // The validated GetResponseNormal consists of tag, choice, invoke id,
+                // success choice, then the original encoded Data through the end.
+                let encoded = plain.get(4..).ok_or(ClientError::Unexpected)?;
+                blocks.check_size(encoded.len(), true)?;
+                Ok(Step::Done(whole(&mut blocks.bytes, value, encoded)?))
+            }
             Response::DataError(e) => Err(ClientError::Refused(e)),
             Response::Block { last, number, data } => {
-                blocks.push(number, data)?;
+                blocks.push(number, last, data)?;
                 if last {
-                    Ok(Step::Done(DataBuf::parse(&blocks.bytes)?))
+                    Ok(Step::Done(reassembled(&blocks.bytes)?))
                 } else {
                     Ok(Step::Send(session.get_next_block_request(number, request)?))
                 }
@@ -529,9 +619,15 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
     fn run<R>(
         &mut self,
         n: usize,
-        mut step: impl FnMut(&mut ClientSession<P, N>, Response<'_>, &mut [u8]) -> Result<Step<R>, ClientError>,
+        limit: usize,
+        mut step: impl FnMut(
+            &mut ClientSession<P, N>,
+            Response<'_>,
+            &mut [u8],
+            &[u8],
+        ) -> Result<Step<R>, ClientError>,
     ) -> Result<R, ClientError> {
-        let Self { session, transport, bufs } = self;
+        let Self { session, transport, bufs, .. } = self;
         let server_max = session.negotiated().map_or(usize::MAX, |i| match i.server_max_receive_pdu_size {
             0 => usize::MAX,
             size => usize::from(size),
@@ -557,14 +653,41 @@ impl<T: Transport, P: CryptoProvider, const N: usize> Client<T, P, N> {
                 }
             }
             let m = transport.recv(&mut bufs.frame)?;
-            let response = session.handle_response(bufs.frame.get(..m).unwrap_or(&[]), &mut bufs.response)?;
+            let frame = bufs.frame.get(..m).ok_or(ClientError::Unexpected)?;
+            let is_gbt = frame.first() == Some(&ApduTag::GeneralBlockTransfer.as_u8());
+            // A protected GBT response must be staged until authentication completes.
+            // Reserve only as blocks arrive and allow one frame for envelope overhead.
+            let ceiling = limit.saturating_add(bufs.frame.len());
+            if is_gbt {
+                let wanted = session.received_gbt_bytes().saturating_add(m).min(ceiling);
+                if wanted > bufs.response.len() {
+                    let size = wanted.max(bufs.response.len().saturating_mul(2).min(ceiling));
+                    bufs.response.reserve_exact(size.saturating_sub(bufs.response.len()));
+                    bufs.response.resize(size, 0);
+                }
+            }
+            let workspace_len = bufs.response.len().min(ceiling);
+            let workspace = bufs.response.get_mut(..workspace_len).ok_or(ClientError::Unexpected)?;
+            let (response, plain) = match session.handle_response_bytes(frame, workspace) {
+                Err(Error { kind: ErrorKind::BufferTooSmall { .. }, .. }) if is_gbt => {
+                    session.abandon();
+                    return Err(ClientError::ResponseTooLarge { limit, reconnect_required: true });
+                }
+                result => result?,
+            };
             match response {
                 Response::Pending => {}
                 Response::Acknowledge(ack) => transport.send(ack.as_bytes())?,
                 Response::Exception(e) => return Err(ClientError::Exception(e)),
-                other => match step(session, other, &mut bufs.request)? {
-                    Step::Done(r) => return Ok(r),
-                    Step::Send(n) => pending = Some(n),
+                other => match step(session, other, &mut bufs.request, plain) {
+                    Ok(Step::Done(r)) => return Ok(r),
+                    Ok(Step::Send(n)) => pending = Some(n),
+                    Err(e) => {
+                        if matches!(e, ClientError::ResponseTooLarge { reconnect_required: true, .. }) {
+                            session.abandon();
+                        }
+                        return Err(e);
+                    }
                 },
             }
         }
@@ -610,16 +733,23 @@ fn action_outcome<P: CryptoProvider, const N: usize>(
     session: &mut ClientSession<P, N>,
     response: Response<'_>,
     request: &mut [u8],
-    blocks: &mut Blocks,
+    blocks: &mut Blocks<Vec<u8>>,
+    plain: &[u8],
 ) -> Result<Step<Option<DataBuf>>, ClientError> {
     match response {
         Response::Ok => Ok(Step::Done(None)),
-        Response::ActionResult { result: ActionResult::Success, value } => {
+        Response::ActionResult { result: ActionResult::Success, value } if blocks.last == 0 => {
+            if value.is_some() {
+                // Tag, choice, invoke id, action result, presence and data-result choice.
+                blocks.check_size(plain.len().saturating_sub(6), true)?;
+            }
             Ok(Step::Done(value.map(|v| DataBuf::from_data(&v)).transpose()?))
         }
-        Response::ActionResult { result, .. } => Err(ClientError::ActionFailed(result)),
+        Response::ActionResult { result, .. } if !result.is_success() => {
+            Err(ClientError::ActionFailed(result))
+        }
         Response::Block { last, number, data } => {
-            blocks.push(number, data)?;
+            blocks.push(number, last, data)?;
             if last {
                 Ok(Step::Done(Some(DataBuf::parse(&blocks.bytes)?)))
             } else {
@@ -634,19 +764,34 @@ fn action_outcome<P: CryptoProvider, const N: usize>(
 ///
 /// A duplicated or reordered fragment concatenated in the wrong place usually still
 /// decodes — into a value that is wrong and carries no error.
-#[derive(Default)]
-struct Blocks {
-    bytes: Vec<u8>,
+struct Blocks<W> {
+    bytes: W,
     last: u32,
+    limit: usize,
 }
 
-impl Blocks {
-    fn push(&mut self, number: u32, data: &[u8]) -> Result<(), ClientError> {
-        if number != self.last.saturating_add(1) {
-            return Err(ClientError::Protocol(Error::new(ErrorKind::UnexpectedMessage, 0)));
+impl<W: Writer> Blocks<W> {
+    fn new(bytes: W, limit: usize) -> Self {
+        Self { bytes, last: 0, limit }
+    }
+
+    fn check_size(&self, additional: usize, last: bool) -> Result<(), ClientError> {
+        if additional > self.limit.saturating_sub(self.bytes.written()) {
+            return Err(ClientError::ResponseTooLarge { limit: self.limit, reconnect_required: !last });
         }
+        Ok(())
+    }
+
+    fn push(&mut self, number: u32, last: bool, data: &[u8]) -> Result<(), ClientError> {
+        if self.last.checked_add(1) != Some(number) || (!last && data.is_empty()) {
+            return Err(ClientError::Protocol(Error::new(
+                ErrorKind::UnexpectedMessage,
+                self.bytes.written(),
+            )));
+        }
+        self.check_size(data.len(), last)?;
+        self.bytes.write_bytes(data)?;
         self.last = number;
-        self.bytes.extend_from_slice(data);
         Ok(())
     }
 }

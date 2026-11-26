@@ -5,14 +5,10 @@
 //! cargo run --example read
 //! ```
 //!
-//! It speaks the DLMS **wrapper** — eight bytes of header over TCP, IANA port 4059 — which
-//! is what a head-end and most GPRS meters use, and what any third-party DLMS client can
-//! be pointed at. That is deliberate: the crate's own largest gap is that almost every
-//! test is this code agreeing with itself, and a simulator another implementation can
-//! read is what closes it.
-//!
-//! It serves plain, unauthenticated associations. Pass `--ciphered` for authenticated and
-//! encrypted with high level security; `examples/read.rs` takes the same flag.
+//! The simulator binds to loopback and uses the TCP wrapper. Both peers use a public
+//! association by default. Pass `--ciphered` to both for HLS-GMAC and AES-GCM.
+//! An optional positional port selects a different loopback port. Use `0` to let
+//! the OS choose one and run the reader command printed at startup.
 //!
 //! Nothing about associations, keys, access control or segmentation appears in the store
 //! below — all of that is the framework's, which is the point of the `ObjectStore` seam.
@@ -189,12 +185,18 @@ type Simulator = Server<Meter, RustCryptoProvider<OsRandom>, 8192>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ciphered = std::env::args().any(|a| a == "--ciphered");
-    let addr = format!("127.0.0.1:{DEFAULT_PORT}");
-    let listener = TcpListener::bind(&addr)?;
+    let port = std::env::args()
+        .skip(1)
+        .find(|arg| arg != "--ciphered")
+        .map(|port| port.parse::<u16>())
+        .transpose()?
+        .unwrap_or(DEFAULT_PORT);
+    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))?;
+    let addr = listener.local_addr()?;
 
     println!("meter listening on {addr}, {} association", if ciphered { "ciphered HLS" } else { "plain" });
     println!("  objects: 1-0:1.8.0, 1-0:2.8.0, 1-0:1.7.0, 0-0:1.0.0, 0-0:96.3.10, 1-0:99.1.0");
-    println!("  try:     cargo run --example read{}\n", if ciphered { " -- --ciphered" } else { "" });
+    println!("  try:     cargo run --example read -- {addr}{}\n", if ciphered { " --ciphered" } else { "" });
 
     for stream in listener.incoming() {
         let mut stream = stream?;

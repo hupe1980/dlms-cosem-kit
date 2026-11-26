@@ -1,19 +1,16 @@
 [package]
 name = "dlms-cosem-kit"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
-description = "DLMS/COSEM (IEC 62056) in Rust: sans-I/O, no_std, client and server, general block transfer, security suites 0-2, and a blocking client driver"
+description = "DLMS/COSEM client and server for Rust with a no_std protocol core, selective profile reads, block transfer and AES-GCM protection"
+homepage = "https://hupe1980.github.io/dlms-cosem-kit/"
 documentation = "https://docs.rs/dlms-cosem-kit"
 repository = "https://github.com/hupe1980/dlms-cosem-kit"
 license = "MIT OR Apache-2.0"
 keywords = ["dlms", "cosem", "smart-meter", "iec62056", "obis"]
 categories = ["embedded", "encoding", "network-programming", "no-std"]
-# An explicit list rather than an exclusion, because the crate's own documentation
-# includes one file from the site (`site/includes/cookbook.md`, which is both the
-# cookbook page and a set of doctests) and packaging must not lose it — while the rest of
-# the site, the fuzz harness and the specification excerpts have no business in a
-# published crate.
+# The crate-level cookbook uses include_str! on the packaged Markdown.
 include = [
     "/src",
     "/examples",
@@ -33,50 +30,32 @@ aes = { version = "0.8", default-features = false, optional = true }
 aes-gcm = { version = "0.10", default-features = false, features = ["aes"], optional = true }
 ghash = { version = "0.5", default-features = false, optional = true }
 aes-kw = { version = "0.2", default-features = false, optional = true }
-# The operating system's randomness, for HLS challenges, under `std` only. A head-end
-# with no secure source would otherwise ship whatever its author wrote instead.
 getrandom = { version = "0.3", optional = true }
 
 [dev-dependencies]
 hex-literal = "1"
 
-# Every feature here switches code that exists. A flag that gates nothing is worse than
-# no flag: it tells a reader the crate does something it does not, and it makes
-# `--all-features` a weaker check than it looks.
 [features]
 default = ["std", "client", "server", "hdlc", "wrapper", "p1", "suite0", "obis-names"]
 
 std = ["alloc", "aes-gcm?/std", "dep:getrandom"]
 alloc = []
 
-# The two engines. Either can be left out; a head-end needs no server and meter
-# firmware needs no client.
 client = []
 server = []
 
-# Transports.
 hdlc = []
 wrapper = []
-# The P1 customer interface: DSMR and eMUCs telegrams. Not DLMS on the wire — it is the
-# IEC 62056-21 data readout — but the same object model, so it lives here rather than in
-# a crate of its own.
 p1 = []
 
-# Cryptography. `suite0` brings the AES-GCM provider that suites 0, 1 and 2 all use for
-# ciphering; the asymmetric halves of suites 1 and 2 — key agreement, signing,
-# certificates — are not implemented, so there is no feature offering them.
 crypto = ["dep:zeroize", "dep:subtle"]
+# Symmetric ciphering for suites 0–2.
 suite0 = ["crypto", "dep:aes", "dep:aes-gcm", "dep:aes-kw", "dep:ghash"]
 
-# Short-name referencing: the Read/Write services an installed base of pre-logical-name
-# meters speaks. Off by default — a legacy addressing mode, and a client that proposes it
-# to a modern meter proposes something the meter will refuse.
 sn = []
 
-# Names for the well-known OBIS codes. Pure tables; off saves the strings.
 obis-names = []
 
-# Fixed-capacity buffers, for a build with no allocator.
 heapless = ["dep:heapless"]
 
 [lints.rust]
@@ -90,10 +69,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 lto = true
 codegen-units = 1
 panic = "abort"
-
-# Each example declares what it needs, so `cargo test` with a reduced feature set does
-# not try to build one that cannot compile. Without this the examples would quietly
-# decide the crate's minimum feature set for everybody.
 
 [[example]]
 name = "association"                  # a whole ciphered association, no I/O at all

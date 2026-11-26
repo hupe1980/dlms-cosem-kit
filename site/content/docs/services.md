@@ -15,20 +15,12 @@ Logical-name referencing has four, and the crate drives all of them in both role
 | **ACTION** | invoke a method | `action-request-with-list` |
 | **ACCESS** | all three, mixed, in one exchange | — it *is* the batch |
 
-A request names a class, an OBIS code and an attribute or method index. Nothing about the
-service knows what the object *means*; that is the object model's job, and keeping the two
-apart is what lets one set of tables serve a server that hosts objects and a client that
-reads them.
+A request identifies an object by class and OBIS code, then names an attribute or method.
 
-### Why the batched forms exist
+### Batched reads
 
-Not to save bytes. On a GPRS or LPWAN link the round trip dominates everything, so thirty
-reads issued one at a time is thirty times the latency rather than thirty times the size.
-
-The other half is **per-item isolation**: each item gets its own result, so a denied or
-missing object occupies its own slot instead of losing the whole exchange. A head-end that
-wanted only atomicity could issue the reads separately — the isolation is the reason the
-service is worth having.
+A list GET returns one result per attribute in request order. A refused attribute
+retains its position and its access error.
 
 ```rust,ignore
 let n = session.get_request_with_list(&items, &mut request)?;
@@ -42,10 +34,6 @@ if let Response::DataList(results) = session.handle_response(&answer, &mut scrat
     }
 }
 ```
-
-That matters most for ACTION. A batch that opened a breaker and then hit a method it may
-not invoke would, without per-item results, report only the failure — and nothing would
-say the breaker had moved.
 
 ### ACCESS
 
@@ -73,16 +61,26 @@ let access = RangeDescriptor::by_clock(from, to).to_selective_access(&mut params
 let n = session.get_request(descriptor, Some(access), &mut request)?;
 ```
 
-The framework carries the descriptor end to end and hands it to the store intact. What it
-cannot do is *apply* it — only the store knows what its buffer is sorted by. The failure
-worth naming is a store that accepts a selector and ignores it: that answers a day's
-request with a year of data and nothing in the exchange says so. The right response to a
-selector a meter does not implement is a refusal, not the whole buffer.
+The server passes the selector to the object store. Apply it to the requested rows
+or return an access error for an unsupported selector.
 
-## Three segmentations, and why they are not alternatives
+### Size a blocking GET
 
-This is the part stacks get wrong, and it is worth being precise. They are different
-mechanisms at different layers, and they **compose**:
+`Client::with_response_capacity` sets the maximum encoded result size (64 KiB by
+default). `get_into(attribute, selection, storage)` also limits the value to
+`storage.len()`. An exactly fitting value succeeds for ordinary, service-block and GBT
+reads. For example, three 37-byte rows plus a two-byte array header need **113 bytes**.
+When delivered in three service replies with ten bytes of overhead each, the incoming
+APDU total is **143 bytes**. A transport budget counts that overhead separately.
+
+The driver checks service fragments before appending. For GBT it first stages the
+protected APDU for verification, allowing one receive frame of envelope overhead
+beyond the effective value limit. The driver reuses that workspace across requests.
+The caller's output is usable only on success. A completed response that exceeds the
+value limit leaves the association usable. An interrupted or unverified transfer sets
+`reconnect_required` on the capacity error and closes the local session.
+
+## Segmentation
 
 | | Cuts up | Bounded by |
 |---|---|---|
@@ -90,18 +88,10 @@ mechanisms at different layers, and they **compose**:
 | **General block transfer** | an *APDU*, whatever service it carries | the negotiated PDU size |
 | **HDLC segmentation** | an *APDU* | the negotiated information field |
 
-A meter on an optical probe typically negotiates a **128-byte information field** and a
-**1024-byte PDU size**. Reading a load profile then needs two of the three at once: block
-transfer to cut the value into APDUs the PDU size can hold, and HDLC segmentation to cut
-each of those into frames the information field can hold. A stack with only one works right
-up until somebody reads a profile — which is the only thing anybody reads.
+For example, a 1024-byte APDU can span multiple 128-byte HDLC information fields.
+Larger values can also require multiple APDUs.
 
 ### Block transfer, both directions
-
-The outbound direction (a long GET response) is the one every stack implements. The
-inbound one is the one they leave out, and it is not rare: reading a load profile needs
-blocks for the *response*, but writing an activity calendar, a set of tariff scripts or a
-firmware image needs them for the *request*.
 
 | Service | Out of the server | Into the server |
 |---|---|---|
@@ -179,6 +169,10 @@ all three so the visitor sees every column of every row as an absolute value:
 - a column repeating the previous row, sent as `null-data`;
 - a run of repeated columns at the *end* of a row, sent by making the row shorter;
 - a column sending a **delta** from the previous row rather than a value.
+
+Pass the count of columns returned by the selection. A row wider than that count
+returns `InvalidValue` before any callback for that row. Earlier rows may already
+have been visited.
 
 A caller that skipped the last of those gets no error. It gets *differences where readings
 were meant*, which for a rising register looks like a meter that suddenly reads almost

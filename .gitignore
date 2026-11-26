@@ -40,6 +40,10 @@ CONCEPT.md
 /specs/
 /.specify/
 /.claude/
+
+# Project-local Spec Kit skills for Codex.
+/.agents/skills/speckit-*/
+
 .DS_Store
 
 # The documentation site is built from `site/` by Zola; the output is not tracked.

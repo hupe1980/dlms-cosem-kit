@@ -4,8 +4,8 @@ description = "HDLC framing, segmentation and the link machine; the TCP/UDP wrap
 weight = 50
 +++
 
-Each transport is sans-I/O in the same way the engines are: it turns bytes into APDUs and
-APDUs into bytes. Opening a socket, driving a serial port and waiting on a timer are yours.
+With `std`, the blocking client can use `WrapperTransport` over TCP or `HdlcTransport`
+over a byte stream. The framing and link-state APIs also work without I/O.
 
 ## HDLC
 
@@ -132,10 +132,3 @@ check the format has should be something a caller said out loud.
 **Luxembourg's P1 is a different thing on the same connector** — an *encrypted DLMS
 `DataNotification`* — and is the [notification listener](@/docs/security.md), not this
 parser.
-
-## What is not here
-
-CoAP, the gateway protocol, SMS, M-Bus and mode E. Each is either an IP network — in which
-case the wrapper applies unchanged — or a MAC layer with a crate of its own. The line is
-deliberate: no LoRaWAN, Wi-SUN, PLC or M-Bus radio stack lives here, and the crate meets
-those links at the APDU or at a socket.

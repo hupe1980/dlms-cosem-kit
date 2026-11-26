@@ -6,10 +6,4 @@ template = "section.html"
 page_template = "page.html"
 +++
 
-Eight pages, in the order they are worth reading. Every code sample on this site is
-compiled as part of the test suite, so a snippet that stops working fails the build rather
-than quietly misleading somebody.
-
-For signatures rather than prose, the API reference comes from the same source:
-`cargo doc --open`, and [docs.rs](https://docs.rs/dlms-cosem-kit) once the crate is
-published.
+Browse the guides below or look up individual types in the [Rust API reference](https://docs.rs/dlms-cosem-kit).

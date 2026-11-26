@@ -1,12 +1,4 @@
-# Cookbook
-
-Short answers to the things people actually want to do. Every snippet here is compiled —
-and, where it needs no socket, run — as part of the test suite, so a recipe that stops
-working fails the build rather than quietly misleading somebody.
-
-The recipes assume the **default features**. Two of them reach past that floor and say so:
-the P1 reader needs `p1`, and the named OBIS constants need `obis-names`. Everything else
-works with `client`, `server` and whichever transport you are using.
+The examples use the default crate features unless stated otherwise.
 
 ## Read a meter over TCP
 
@@ -41,10 +33,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Over HDLC — an optical probe, an RS-485 bus, a TCP-to-serial bridge — only the first line
 changes: `HdlcTransport::connect(stream, Address::client(0x10), Address::server(1, 17))?`.
 
+### Read a clock-selected profile into reusable storage
+
+The capture-object list gives the column count for a whole-row selection. A row wider
+than that count fails before its first callback. Once the call succeeds, the returned
+view borrows the supplied storage and you can use the client for another request.
+
+```rust
+use dlms_cosem_kit::axdr::DateTime;
+use dlms_cosem_kit::client::{Client, ClientError, Transport};
+use dlms_cosem_kit::cosem::{ProfileBuffer, RangeDescriptor};
+use dlms_cosem_kit::security::CryptoProvider;
+use dlms_cosem_kit::xdlms::AttributeDescriptor;
+
+fn visit_range<T: Transport, P: CryptoProvider>(
+    meter: &mut Client<T, P>, buffer: AttributeDescriptor, columns: usize,
+    from: DateTime, to: DateTime, storage: &mut [u8],
+) -> Result<(), ClientError> {
+    let mut parameters = [0; 96];
+    let range = RangeDescriptor::by_clock(from, to).to_selective_access(&mut parameters)?;
+    let value = meter.get_into(buffer, Some(range), storage)?;
+    ProfileBuffer::new(&value)?.for_each_cell(columns, |row, col, cell| {
+        println!("{row}/{col} {cell:?}");
+        Ok(())
+    })?;
+    Ok(())
+}
+```
+
+`ClientError::ResponseTooLarge { reconnect_required: false, .. }` allows a retry with a
+larger effective limit or a narrower selection. When `reconnect_required` is true, use
+a fresh connection. A meter refusal retains its `DataAccessResult`.
+
 ### Driving the session yourself
 
-For `no_std` firmware or an async runtime, use `ClientSession` directly; the driver is
-about four hundred lines over it and `examples/association.rs` runs a whole association
+For `no_std` firmware or an async runtime, use `ClientSession` directly; the driver uses it internally and `examples/association.rs` runs a whole association
 with no transport at all. The rest of this cookbook shows the session-level calls, because
 they are what the driver is made of.
 
@@ -757,7 +780,7 @@ while let Ok(Found::Frame { frame, consumed }) = framer.next_frame(&stream[at..]
 transfer cuts a *value* too large for the negotiated PDU size into several APDUs;
 segmentation cuts each *APDU* into frames the information field can hold. A meter on an
 optical probe with a 128-byte information field and a 1024-byte PDU size uses both at
-once when you read a load profile — which is the only thing anyone reads.
+once when you read a load profile.
 
 `push` requires consecutive send-sequence numbers. A lost or duplicated segment
 concatenated in the wrong place produces a byte string that often still decodes, into an
@@ -888,7 +911,7 @@ assert_eq!(attribute_name(152, 0, 2), None);
 
 ```toml
 [dependencies]
-dlms-cosem-kit = { version = "0.1", default-features = false, features = [
+dlms-cosem-kit = { version = "0.3", default-features = false, features = [
     "client", "hdlc", "suite0",
 ] }
 ```

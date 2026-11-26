@@ -231,7 +231,9 @@ impl<'a> ProfileBuffer<'a> {
     /// value — which is the point.
     ///
     /// # Errors
-    /// When `columns` exceeds [`MAX_COLUMNS`]; when a row is not a structure; when the
+    /// An oversized row returns [`ErrorKind::InvalidValue`] before its first callback.
+    /// Earlier rows may already have been visited. Also fails when `columns` exceeds
+    /// [`MAX_COLUMNS`]; when a row is not a structure; when the
     /// first row omits a value or sends a delta and so has nothing to be relative to; or
     /// when a delta's base type does not match the value it follows.
     pub fn for_each_cell(
@@ -247,11 +249,10 @@ impl<'a> ProfileBuffer<'a> {
         }
         for (row_index, row) in self.raw_rows().enumerate() {
             let row = row?;
-            let mut seen = 0usize;
+            if row.len() > columns {
+                return Err(Error::new(ErrorKind::InvalidValue, 0));
+            }
             for (col, cell) in row.iter().enumerate() {
-                if col >= columns {
-                    break;
-                }
                 let cell = cell?;
                 // `col < columns <= previous.len()` holds, but saying so with `get_mut`
                 // is what keeps the bound out of the generated code as a panic path
@@ -272,10 +273,9 @@ impl<'a> ProfileBuffer<'a> {
                 };
                 *slot = Some(value);
                 f(row_index, col, value)?;
-                seen = col + 1;
             }
             // A short row means the columns it left out are unchanged.
-            for col in seen..columns {
+            for col in row.len()..columns {
                 let value = previous
                     .get(col)
                     .copied()
@@ -292,6 +292,32 @@ impl<'a> ProfileBuffer<'a> {
 mod tests {
     use super::*;
     use crate::codec::Decode;
+
+    /// 002-bounded-profile-reads/SR-001
+    #[test]
+    fn surplus_columns_are_rejected_before_visiting_the_row() {
+        let bytes = [1, 1, 2, 2, 17, 10, 17, 20];
+        let data = Data::from_bytes(&bytes).unwrap();
+        let profile = ProfileBuffer::new(&data).unwrap();
+        for columns in [0, 1] {
+            let mut visits = 0;
+            let error = profile
+                .for_each_cell(columns, |_, _, _| {
+                    visits += 1;
+                    Ok(())
+                })
+                .unwrap_err();
+            assert_eq!((error.kind, visits), (ErrorKind::InvalidValue, 0));
+        }
+        let mut values = [0; 2];
+        profile
+            .for_each_cell(2, |_, col, value| {
+                values[col] = value.as_u64().unwrap();
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(values, [10, 20]);
+    }
 
     #[test]
     fn a_range_descriptor_selects_by_clock() {

@@ -7,6 +7,17 @@ one**.
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 [Semantic Versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.3.0] — 2026-11-26
+
+- Added `Client::get_into` for ordinary and selected GETs that borrow caller storage.
+- **Breaking:** `with_response_capacity` limits the encoded result across ordinary GET,
+  GET lists, ACTION returns and both block mechanisms. In 0.2.0 it sized the decryption
+  and GBT workspace, leaving service-block accumulation uncapped.
+  `ClientError::ResponseTooLarge` reports the effective limit and whether to reconnect.
+- **Breaking:** `ProfileBuffer::for_each_cell` rejects a row wider than its capture list
+  before its first callback. Valid shortened rows still inherit trailing values.
+- The meter example accepts a loopback port. Pass `0` for an available port.
+
 ## [0.2.0] — 2026-11-22
 
 ### Added
@@ -52,7 +63,6 @@ one**.
 
 ## [0.1.0] — 2026-11-22
 
-First release worth using. Everything below `0.1.0` was unpublished groundwork.
 Published as `dlms-cosem-rs` and, renamed, as `dlms-cosem-kit`.
 
 ### Added
@@ -104,5 +114,6 @@ at — see [the status page](https://hupe1980.github.io/dlms-cosem-kit/docs/stat
 **Interoperability has not been tested.** Almost every green test is this crate agreeing
 with itself.
 
+[0.3.0]: https://github.com/hupe1980/dlms-cosem-kit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hupe1980/dlms-cosem-kit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hupe1980/dlms-cosem-kit/releases/tag/v0.1.0

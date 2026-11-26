@@ -49,7 +49,7 @@ pub enum SessionState {
     Associated,
     /// A release request has gone out.
     Releasing,
-    /// The association is over. The server refused, or it was released.
+    /// The association is over. It was refused, released, or abandoned locally.
     Closed,
 }
 
@@ -1325,9 +1325,18 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
     /// When the APDU is malformed, protected more weakly than the policy demands, or
     /// not a response at all; when a GBT response outgrows `buf`.
     pub fn handle_response<'b>(&mut self, apdu: &[u8], buf: &'b mut [u8]) -> Result<Response<'b>> {
+        self.handle_response_bytes(apdu, buf).map(|(response, _)| response)
+    }
+
+    // The driver also needs the authenticated plaintext to copy the exact wire value.
+    pub(super) fn handle_response_bytes<'b>(
+        &mut self,
+        apdu: &[u8],
+        buf: &'b mut [u8],
+    ) -> Result<(Response<'b>, &'b [u8])> {
         let plain: &'b [u8] = if apdu.first() == Some(&ApduTag::GeneralBlockTransfer.as_u8()) {
             match self.take_gbt_block(apdu, buf)? {
-                GbtStep::Answer(r) => return Ok(r),
+                GbtStep::Answer(r) => return Ok((r, &[])),
                 GbtStep::Complete(range) => {
                     let done: &'b [u8] = buf;
                     done.get(range).ok_or(Error::new(ErrorKind::InvalidLength, 0))?
@@ -1351,7 +1360,7 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
                 }
             }
         }
-        Ok(match decoded {
+        let response = match decoded {
             Apdu::GetResponse(GetResponse::Normal { result, .. }) => match result.value() {
                 Ok(d) => Response::Data(d),
                 Err(e) => Response::DataError(e),
@@ -1402,7 +1411,20 @@ impl<P: CryptoProvider, const N: usize> ClientSession<P, N> {
                 Response::Released
             }
             _ => return Err(Error::new(ErrorKind::UnexpectedMessage, 0)),
-        })
+        };
+        Ok((response, plain))
+    }
+
+    #[cfg(feature = "std")]
+    pub(super) fn abandon(&mut self) {
+        self.gbt_rx = None;
+        self.outstanding = None;
+        self.state = SessionState::Closed;
+    }
+
+    #[cfg(feature = "std")]
+    pub(super) fn received_gbt_bytes(&self) -> usize {
+        self.gbt_rx.as_ref().map_or(0, GbtRecvCursor::len)
     }
 
     /// Encode an APDU, protecting it when the policy says so.

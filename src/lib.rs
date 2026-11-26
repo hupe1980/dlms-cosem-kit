@@ -45,11 +45,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-/// Recipes for the things people actually do with this crate.
-///
-/// Every snippet is a doctest, so a recipe that stops compiling fails the build. The
-/// module needs the default features, because the recipes use them; docs.rs builds with
-/// all of them.
+/// Recipes for meter clients and servers using the default features.
 #[cfg(all(
     feature = "std",
     feature = "client",

@@ -4,10 +4,6 @@ description = "DLMS security suites 0–2, the three protection forms, high leve
 weight = 30
 +++
 
-DLMS security is small: one AEAD, one MAC construction, one counter. Nearly everything
-that goes wrong with it goes wrong in the bookkeeping around those, so this page is mostly
-about the bookkeeping.
-
 ## The suites
 
 | Suite | Ciphering | Adds |
@@ -16,14 +12,9 @@ about the bookkeeping.
 | 1 | AES-GCM-128 | ECDH / ECDSA on P-256 with SHA-256 |
 | 2 | AES-GCM-256 | ECDH / ECDSA on P-384 with SHA-384 |
 
-**Ciphering is AES-GCM in all three**, and the default provider does all three — a suite-2
-association is an end-to-end test, not a sentence. What suites 1 and 2 *add* is asymmetric:
-key agreement, signing, certificates. **None of that is implemented**, and there is
-deliberately no feature flag suggesting otherwise. A received frame naming suite 1 or 2
-decrypts correctly; a message that needs ECDSA to verify does not, and says so.
-
-The nonce is twelve bytes: the sender's eight-byte **system title** followed by its
-four-byte **invocation counter**. That single fact explains most of the rest of this page.
+The provider supports AES-GCM for all three suites. ECDH key agreement, ECDSA signing
+and certificate processing are unsupported. Each nonce combines an eight-byte sender
+system title with a four-byte invocation counter.
 
 ## Three ways an APDU is protected
 

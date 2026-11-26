@@ -37,12 +37,12 @@ type Meter = Server<TestMeter, Provider, 8192>;
 
 /// A transport that is a server, in the same process: every APDU sent is handled at once,
 /// and everything the server emits — streamed GBT blocks included — queues for `recv`.
-struct InMemory {
-    server: Meter,
+struct InMemory<S = TestMeter> {
+    server: Server<S, Provider, 8192>,
     queue: VecDeque<Vec<u8>>,
 }
 
-impl Transport for InMemory {
+impl<S: dlms_cosem_kit::server::ObjectStore> Transport for InMemory<S> {
     fn send(&mut self, apdu: &[u8]) -> io::Result<()> {
         let mut out = vec![0u8; 8192];
         let n = self.server.handle(apdu, &mut out).map_err(io::Error::other)?;
@@ -100,6 +100,201 @@ fn hls_client(meter: Meter, counter: u32) -> Result<Client<InMemory, Provider>, 
         hls_config(counter),
         RustCryptoProvider::with_rng(KeyRing::new(GUEK, GAK), FixedRandom(0xA1)),
     )
+}
+
+/// Three captured rows from the gateway fixture. Both clocks are encoded as octet strings.
+struct ClockProfile;
+
+impl dlms_cosem_kit::server::ObjectStore for ClockProfile {
+    fn get_attribute(
+        &self,
+        _: u16,
+        _: dlms_cosem_kit::obis::Obis,
+        _: i8,
+        selection: Option<dlms_cosem_kit::xdlms::SelectiveAccess<'_>>,
+        w: &mut dyn dlms_cosem_kit::codec::Writer,
+    ) -> dlms_cosem_kit::server::StoreResult<()> {
+        if selection.is_some_and(|s| s.selector != 1) {
+            return Err(DataAccessResult::ScopeOfAccessViolated);
+        }
+        let mut write = || -> dlms_cosem_kit::codec::Result<()> {
+            w.write_bytes(&[1, 3])?;
+            for minute in [0u8, 15, 30] {
+                w.write_bytes(&[2, 4])?;
+                Data::Unsigned(1).encode(w)?;
+                Data::DoubleLongUnsigned(12_340 + u32::from(minute)).encode(w)?;
+                for second in [0, 2] {
+                    let time = dlms_cosem_kit::axdr::DateTime::from_civil(1970, 1, 1, 0, minute, second, 0);
+                    Data::OctetString(&time.to_bytes()).encode(w)?;
+                }
+            }
+            Ok(())
+        };
+        write().map_err(|_| DataAccessResult::OtherReason)
+    }
+
+    fn attribute_access(
+        &self,
+        _: u16,
+        _: dlms_cosem_kit::obis::Obis,
+        _: i8,
+    ) -> dlms_cosem_kit::cosem::AttributeAccess {
+        dlms_cosem_kit::cosem::AttributeAccess::READ
+    }
+}
+
+/// Observe requests and incoming APDU lengths independently of encoded output.
+struct ObservedTransport<T> {
+    link: T,
+    sizes: Vec<usize>,
+    sends: usize,
+}
+
+impl<T: Transport> Transport for ObservedTransport<T> {
+    fn send(&mut self, apdu: &[u8]) -> io::Result<()> {
+        self.sends += 1;
+        self.link.send(apdu)
+    }
+    fn recv(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.link.recv(buf)?;
+        self.sizes.push(n);
+        Ok(n)
+    }
+}
+
+/// 002-bounded-profile-reads/SR-002
+#[test]
+fn profile_limits_count_encoded_bytes_across_all_get_forms() {
+    use dlms_cosem_kit::{
+        axdr::DateTime,
+        cosem::{ProfileBuffer, RangeDescriptor},
+    };
+    let profile = AttributeDescriptor::new(7, LOAD_PROFILE, 2);
+    let mut params = [0; 96];
+    let range = RangeDescriptor::by_clock(
+        DateTime::from_civil(1970, 1, 1, 0, 0, 0, 0),
+        DateTime::from_civil(1970, 1, 1, 0, 30, 0, 0),
+    )
+    .to_selective_access(&mut params)
+    .unwrap();
+    for (pdu, gbt) in [(256, false), (64, false), (64, true)] {
+        let provider = || RustCryptoProvider::with_rng(KeyRing::default(), FixedRandom(0x42));
+        let link = ObservedTransport {
+            link: InMemory {
+                server: Server::new(ServerConfig::default(), ClockProfile, provider()),
+                queue: VecDeque::new(),
+            },
+            sizes: Vec::new(),
+            sends: 0,
+        };
+        let mut conformance = Conformance::CLIENT_DEFAULT;
+        conformance.set(Conformance::GENERAL_BLOCK_TRANSFER, gbt);
+        let config = ClientConfig { max_pdu_size: pdu, conformance, ..Default::default() };
+        let mut meter: Client<_, _> =
+            Client::connect(link, config, provider()).unwrap().with_response_capacity(113);
+        let mut out = [0; 113];
+        meter.transport_mut().sizes.clear();
+        let rows_start = out[2..].as_ptr();
+        let value = meter.get_into(profile, Some(range), &mut out).unwrap();
+        assert_eq!(value.as_array().unwrap().as_bytes().as_ptr(), rows_start);
+        let rows = ProfileBuffer::new(&value).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.raw_rows().next().unwrap().unwrap().len(), 4);
+        let sizes = &meter.transport_mut().sizes;
+        let expected = match (pdu, gbt) {
+            (256, _) => (1, 117),
+            (_, true) => (3, 138),
+            _ => (3, 143),
+        };
+        assert_eq!((sizes.len(), sizes.iter().sum::<usize>()), expected);
+        assert_eq!(meter.get_selected(profile, range).unwrap().as_array().unwrap().len(), 3);
+        assert_eq!(meter.get(profile).unwrap().as_array().unwrap().len(), 3);
+        assert!(matches!(
+            meter.get_into(profile, None, &mut out[..112]),
+            Err(ClientError::ResponseTooLarge { limit: 112, reconnect_required: false })
+        ));
+        let mut meter = meter.with_response_capacity(112);
+        for result in [meter.get(profile), meter.get_selected(profile, range)] {
+            assert!(matches!(
+                result,
+                Err(ClientError::ResponseTooLarge { limit: 112, reconnect_required: false })
+            ));
+        }
+        assert!(matches!(
+            meter.get_into(profile, Some(range), &mut out),
+            Err(ClientError::ResponseTooLarge { limit: 112, reconnect_required: false })
+        ));
+        meter.with_response_capacity(113).get_into(profile, None, &mut out).unwrap();
+    }
+}
+
+/// 002-bounded-profile-reads/SR-003
+#[test]
+fn interrupted_transfers_close_the_local_session_but_refusals_allow_reuse() {
+    for gbt in [false, true] {
+        let mut config = hls_config(0);
+        if !gbt {
+            config.conformance.remove(Conformance::GENERAL_BLOCK_TRANSFER);
+        }
+        let mut meter: Client<_, _> = Client::connect(
+            ObservedTransport {
+                link: InMemory { server: hls_meter(GAK), queue: VecDeque::new() },
+                sizes: Vec::new(),
+                sends: 0,
+            },
+            config,
+            RustCryptoProvider::with_rng(KeyRing::new(GUEK, GAK), FixedRandom(0xa1)),
+        )
+        .unwrap();
+        let energy = AttributeDescriptor::new(3, ENERGY, 2);
+        let profile = AttributeDescriptor::new(7, LOAD_PROFILE, 2);
+        let mut scratch = [0; 5];
+        assert!(matches!(
+            meter.get_into(AttributeDescriptor::new(1, SECRET_LOG, 2), None, &mut []),
+            Err(ClientError::Refused(DataAccessResult::ReadWriteDenied))
+        ));
+        assert_eq!(meter.get_into(energy, None, &mut scratch).unwrap().as_u64(), Some(12_345_678));
+        let mut selected = [0; 64];
+        let access = EntryDescriptor::entries(1, 50).to_selective_access(&mut selected).unwrap();
+        let mut profile_bytes = [0; 502];
+        assert_eq!(
+            meter.get_into(profile, Some(access), &mut profile_bytes).unwrap().as_array().unwrap().len(),
+            50
+        );
+        assert!(matches!(
+            meter.get_into(profile, Some(access), &mut profile_bytes[..501]),
+            Err(ClientError::ResponseTooLarge { limit: 501, reconnect_required: false })
+        ));
+        assert!(matches!(
+            meter.get_into(profile, None, &mut scratch),
+            Err(ClientError::ResponseTooLarge { limit: 5, reconnect_required: true })
+        ));
+        assert_eq!(meter.session().state(), dlms_cosem_kit::client::SessionState::Closed);
+        let sends = meter.transport_mut().sends;
+        assert!(meter.get(energy).is_err());
+        assert_eq!(meter.release().unwrap().sends, sends);
+    }
+}
+
+#[test]
+fn list_and_action_limits_include_only_the_encoded_result() {
+    let energy = AttributeDescriptor::new(3, ENERGY, 2);
+    let echo = MethodDescriptor::new(18, IMAGE, 1);
+    // List count + success choice + double-long-unsigned = 7 bytes.
+    let mut meter = hls_client(hls_meter(GAK), 0).unwrap().with_response_capacity(7);
+    assert_eq!(meter.get_list(&[energy]).unwrap().len(), 1);
+    let mut meter = meter.with_response_capacity(6);
+    assert!(matches!(
+        meter.get_list(&[energy]),
+        Err(ClientError::ResponseTooLarge { limit: 6, reconnect_required: false })
+    ));
+    let value = Data::OctetString(&[1, 2, 3, 4]);
+    assert_eq!(meter.action(echo, Some(&value)).unwrap().unwrap().as_bytes(), Some(&[1, 2, 3, 4][..]));
+    let mut meter = meter.with_response_capacity(5);
+    assert!(matches!(
+        meter.action(echo, Some(&value)),
+        Err(ClientError::ResponseTooLarge { limit: 5, reconnect_required: false })
+    ));
 }
 
 /// US1: the whole read of `examples/read.rs`, through the driver, over HLS-GMAC.

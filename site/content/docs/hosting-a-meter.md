@@ -4,12 +4,8 @@ description = "Implement ObjectStore and let the framework handle associations, 
 weight = 70
 +++
 
-The server is the half most stacks never grow, and it is the half that decides whether an
-object model is any good: a model written for a client only has to *read* every class, one
-written for a server has to *host* them.
-
-Implement one trait. Associations, authentication, access control, protection, replay
-rejection and segmentation are the framework's.
+Implement `ObjectStore` to provide attribute values, method behavior and access rights.
+The server handles associations, protection, replay checks and segmentation.
 
 ```rust,ignore
 impl ObjectStore for Meter {

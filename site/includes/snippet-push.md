@@ -2,9 +2,6 @@
 let mut listener = NotificationListener::new(
     RustCryptoProvider::new(KeyRing::default()),
     SingleMeterKeys::new(meter_title, KeyRing::new(guek, gak)),
-    // What the listener *requires*. A push is unsolicited, so nothing negotiated
-    // this: the only statement about how a frame should have been protected is
-    // this one.
     SecurityPolicy::authenticated_encrypted(SecuritySuite::Suite0),
 );
 

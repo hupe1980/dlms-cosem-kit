@@ -17,7 +17,7 @@
 
 use dlms_cosem_kit::acse::AuthMechanism;
 use dlms_cosem_kit::client::{Client, ClientConfig, ClientError};
-use dlms_cosem_kit::cosem::EntryDescriptor;
+use dlms_cosem_kit::cosem::{EntryDescriptor, ProfileBuffer};
 use dlms_cosem_kit::obis::Obis;
 use dlms_cosem_kit::security::{KeyRing, RustCryptoProvider, SecurityPolicy, SecuritySuite, SystemTitle};
 use dlms_cosem_kit::transport::WrapperTransport;
@@ -96,14 +96,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // it at the meter with selective access when only part of it is wanted.
     let profile = meter.get(AttributeDescriptor::new(7, PROFILE, 2))?;
     let mut params = [0u8; 64];
-    let first_two = meter.get_selected(
+    let mut storage = [0u8; 128];
+    let first_two = meter.get_into(
         AttributeDescriptor::new(7, PROFILE, 2),
-        EntryDescriptor::entries(1, 2).to_selective_access(&mut params)?,
+        Some(EntryDescriptor::entries(1, 2).to_selective_access(&mut params)?),
+        &mut storage,
     )?;
     println!(
-        "  load profile: {} rows; selected at the meter: {}\n",
+        "  load profile: {} rows; selected at the meter: {} rows\n",
         profile.as_array().map_or(0, <[_]>::len),
-        first_two
+        ProfileBuffer::new(&first_two)?.len()
     );
 
     // An ACTION that changes something. Access rights are the meter's to enforce.

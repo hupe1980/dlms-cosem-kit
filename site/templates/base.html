@@ -40,7 +40,7 @@
   "description": "{{ config.description }}",
   "codeRepository": "{{ config.extra.repository }}",
   "programmingLanguage": "Rust",
-  "license": "https://spdx.org/licenses/MIT.html",
+  "license": ["https://spdx.org/licenses/MIT.html", "https://spdx.org/licenses/Apache-2.0.html"],
   "url": "{{ config.base_url }}/",
   "keywords": "DLMS, COSEM, IEC 62056, smart meter, Rust, no_std, sans-I/O, OBIS, HDLC, DSMR, P1"
 }
@@ -70,9 +70,6 @@
 <footer class="site">
   <p>
     <strong>{{ config.extra.crate_name }}</strong> — {{ config.extra.license }}.
-    The DLMS User Association's Blue and Green Books are the masters and are not
-    redistributed here; this crate contains encodings, tag values, class identifiers and
-    OBIS codes, which are facts, and no specification prose.
   </p>
   <p class="muted">
     Not affiliated with the DLMS User Association. “DLMS” and “COSEM” are its marks.
